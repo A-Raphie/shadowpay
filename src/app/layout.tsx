@@ -18,7 +18,7 @@ const spaceMono = Space_Mono({
 
 export const metadata: Metadata = {
   title: 'ShadowPay · Private payroll on Starknet',
-  description: 'Every Starknet payroll is public. ShadowPay fixes it — shield STRK, pay your team privately, unshield on demand. Built on STRK20.',
+  description: 'Every Starknet payroll is public. ShadowPay fixes it: shield STRK, pay your team privately, unshield on demand. Built on STRK20.',
 }
 
 export default function RootLayout({

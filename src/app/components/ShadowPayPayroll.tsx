@@ -52,21 +52,21 @@ export function OrgPayrollPanel() {
       try {
         to = num.toHex(row.address.trim());
       } catch {
-        setLog((l) => [...l, `#${i + 1} ${row.label || "—"}: bad address, skipped.`]);
+        setLog((l) => [...l, `#${i + 1} ${row.label || "·"}: bad address, skipped.`]);
         continue;
       }
       if (wei === null || wei === 0n) {
-        setLog((l) => [...l, `#${i + 1} ${row.label || "—"}: bad amount, skipped.`]);
+        setLog((l) => [...l, `#${i + 1} ${row.label || "·"}: bad amount, skipped.`]);
         continue;
       }
       const actions: WALLET_API.STRK20_ACTION[] = [
         { type: "transfer", token: constants.addrSTRK, amount: num.toHex(wei), recipient: to },
       ];
       try {
-        setLog((l) => [...l, `#${i + 1} ${row.label || to.slice(0, 10)}… → ${row.amount} STRK — proving…`]);
+        setLog((l) => [...l, `#${i + 1} ${row.label || to.slice(0, 10)}… → ${row.amount} STRK · proving…`]);
         const r: any = await myWalletAccount.strk20InvokeTransaction(actions);
         const txH: string = r.transaction_hash ?? r?.transactionHash ?? String(r);
-        setLog((l) => [...l, `#${i + 1} tx ${txH.slice(0, 10)}… submitted — waiting…`]);
+        setLog((l) => [...l, `#${i + 1} tx ${txH.slice(0, 10)}… submitted · waiting…`]);
         const provider: any = (myWalletAccount as any).provider ?? constants.myFrontendProviders[0];
         try {
           await provider.waitForTransaction?.(txH, { retries: 400, retryInterval: 3000 });
@@ -77,7 +77,7 @@ export function OrgPayrollPanel() {
       } catch (e: any) {
         const msg = e?.message ?? String(e);
         const screened = /screen|compliance|denied|blocked/i.test(msg);
-        setLog((l) => [...l, `#${i + 1} failed: ${screened ? "screened — try smaller amount" : msg}`]);
+        setLog((l) => [...l, `#${i + 1} failed: ${screened ? "screened · try smaller amount" : msg}`]);
       }
     }
     setRunning(false);
@@ -87,7 +87,7 @@ export function OrgPayrollPanel() {
     <div className={styles.payrollCard}>
       <div className={styles.payrollHead}>
         <div>
-          <div className={styles.payrollTitle}>Org — batch pay (private)</div>
+          <div className={styles.payrollTitle}>Org · batch pay (private)</div>
           <div className={styles.payrollHint}>
             Sequential private note→note transfers. Each tx is relayed; amount + parties stay private.
           </div>
@@ -166,7 +166,7 @@ export function EmployeeClaimPanel() {
       if (Array.isArray(arr) && arr.length) {
         setNote(arr.map((b: any) => `${b.token ?? b[0] ?? "token"}: ${String(b.amount ?? b[1] ?? b.balance ?? "")}`).join("\n"));
       } else if (Array.isArray(arr) && !arr.length) {
-        setNote("No shielded notes yet — you have not been paid privately on this account.");
+        setNote("No shielded notes yet · you have not been paid privately on this account.");
       } else {
         setNote(typeof arr === "string" ? arr : JSON.stringify(arr, null, 2));
       }
@@ -191,18 +191,18 @@ export function EmployeeClaimPanel() {
       ];
       const r: any = await myWalletAccount.strk20InvokeTransaction(actions);
       const txH: string = r.transaction_hash ?? String(r);
-      setNote(`Submitted ${txH} — waiting for confirmation…`);
+      setNote(`Submitted ${txH} · waiting for confirmation…`);
       const provider: any = (myWalletAccount as any).provider ?? constants.myFrontendProviders[0];
-      try { await provider.waitForTransaction?.(txH, { retries: 400, retryInterval: 3000 }); setNote(`Unshield confirmed · ${txH}`); } catch { setNote(`Sent · ${txH} — check Voyager`); }
+      try { await provider.waitForTransaction?.(txH, { retries: 400, retryInterval: 3000 }); setNote(`Unshield confirmed · ${txH}`); } catch { setNote(`Sent · ${txH} · check Voyager`); }
     } catch (e: any) {
       const msg = e?.message ?? String(e);
-      setNote(/screen|compliance/i.test(msg) ? `Screened — ${msg}` : msg);
+      setNote(/screen|compliance/i.test(msg) ? `Screened · ${msg}` : msg);
     } finally { setBusy(false); }
   };
 
   return (
     <div className={styles.payrollCard}>
-      <div className={styles.payrollTitle}>Employee — claim privately</div>
+      <div className={styles.payrollTitle}>Employee · claim privately</div>
       <div className={styles.payrollHint}>Discover shielded notes, then unshield to any Starknet address.</div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
@@ -210,7 +210,7 @@ export function EmployeeClaimPanel() {
           Discover my notes
         </button>
         <span className={styles.payrollHint} style={{ alignSelf: "center" }}>
-          Uses wallet viewing keys — nothing leaves your device.
+          Uses wallet viewing keys · nothing leaves your device.
         </span>
       </div>
 

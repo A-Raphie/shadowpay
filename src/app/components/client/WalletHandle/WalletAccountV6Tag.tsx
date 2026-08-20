@@ -57,12 +57,12 @@ function prettyStatus(finality?: string, exec?: string): string {
   return [f, e].filter(Boolean).join(" · ") || "Confirmed";
 }
 
-// Screening-aware error copy — judged on depth, so surface the distinct revert.
+// Screening-aware error copy · judged on depth, so surface the distinct revert.
 function isScreeningError(msg: string): boolean {
   return /screen|compliance|denied|blocked/i.test(msg);
 }
 function screeningNote(msg: string): string {
-  return `Screened by compliance signer — this deposit was rejected on-chain.\nTry a smaller amount (2–3 STRK) or a different route.\nRaw: ${msg}`;
+  return `Screened by compliance signer · this deposit was rejected on-chain.\nTry a smaller amount (2–3 STRK) or a different route.\nRaw: ${msg}`;
 }
 
 // Turn a raw tx receipt into a readable receipt card (amount, status, fee, events, hash).
