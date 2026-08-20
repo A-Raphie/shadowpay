@@ -3,6 +3,7 @@
 import styles from "./uni.module.css";
 import SelectWallet from "./components/client/WalletHandle/SelectWallet";
 import WalletAccountV6Tag from "./components/client/WalletHandle/WalletAccountV6Tag";
+import { EmployeeClaimPanel, OrgPayrollPanel } from "./components/ShadowPayPayroll";
 
 export default function Page() {
   return (
@@ -173,6 +174,11 @@ privacy_invoke(Ekubo, pool, noteId);`}
           <div className={styles.panelBody}>
             <WalletAccountV6Tag />
           </div>
+        </div>
+
+        <div className={styles.payrollGrid}>
+          <OrgPayrollPanel />
+          <EmployeeClaimPanel />
         </div>
       </section>
 

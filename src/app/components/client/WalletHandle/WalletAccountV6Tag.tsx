@@ -57,6 +57,14 @@ function prettyStatus(finality?: string, exec?: string): string {
   return [f, e].filter(Boolean).join(" · ") || "Confirmed";
 }
 
+// Screening-aware error copy — judged on depth, so surface the distinct revert.
+function isScreeningError(msg: string): boolean {
+  return /screen|compliance|denied|blocked/i.test(msg);
+}
+function screeningNote(msg: string): string {
+  return `Screened by compliance signer — this deposit was rejected on-chain.\nTry a smaller amount (2–3 STRK) or a different route.\nRaw: ${msg}`;
+}
+
 // Turn a raw tx receipt into a readable receipt card (amount, status, fee, events, hash).
 function receiptToResult(txR: any, txH: string, amountLabel: string): ActionResult {
   const r = txR?.value ?? txR;
@@ -188,6 +196,26 @@ export default function WalletAccountV6Tag() {
     getWAchainId();
   }, [myFrontendProviderIndex, chain]);
 
+  // 10-block finality guard (pool rule: wait 10 blocks between privacy txs).
+  const [lastTxBlock, setLastTxBlock] = useState<number | null>(null);
+  const [headBlock, setHeadBlock] = useState<number | null>(null);
+  useEffect(() => {
+    if (lastTxBlock === null) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const n = await constants.myFrontendProviders[myFrontendProviderIndex]?.getBlockNumber();
+        if (!cancelled && typeof n === "number") setHeadBlock(n);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [lastTxBlock, myFrontendProviderIndex]);
+  const blocksRemaining =
+    lastTxBlock !== null && headBlock !== null ? Math.max(0, lastTxBlock + 10 - headBlock) : 0;
+  const canAct = blocksRemaining === 0;
+
   // Submit STRK20 actions through the WalletAccountV6 instance, show the tx hash, then
   // wait for the receipt (privacy-pool txs verify a STARK proof on-chain - long budget).
   // Returns the tx hash on success, or undefined on error.
@@ -205,7 +233,10 @@ export default function WalletAccountV6Tag() {
       const r = await myWalletAccount.strk20InvokeTransaction(actions);
       txH = r.transaction_hash;
     } catch (error: any) {
-      setResult(errorResult(error?.message ?? error?.toString?.() ?? String(error)));
+      const msg = error?.message ?? error?.toString?.() ?? String(error);
+      const note = isScreeningError(msg) ? screeningNote(msg) : msg;
+      const title = isScreeningError(msg) ? "Deposit screened" : "Action failed";
+      setResult({ status: "error", title, note });
       return undefined;
     }
     setResult({
@@ -220,17 +251,31 @@ export default function WalletAccountV6Tag() {
     // wrong network; use the frontend provider that tracks the current network instead.
     const provider = constants.myFrontendProviders[myFrontendProviderIndex];
     try {
-      const txR = await provider.waitForTransaction(txH, {
+      const txR: any = await provider.waitForTransaction(txH, {
         retries: 400,
         retryInterval: 3000,
       });
-      setResult(receiptToResult(txR, txH, amountLabel));
+      const raw = txR?.value ?? txR;
+      if (raw?.execution_status === "REVERTED") {
+        const revertMsg = raw?.revert_reason ?? raw?.execution_status ?? "";
+        const note = isScreeningError(revertMsg) ? screeningNote(revertMsg) : revertMsg;
+        const title = isScreeningError(revertMsg) ? "Deposit screened" : "Transaction reverted";
+        setResult({ status: "error", title, rows: [{ label: "Transaction", value: shortHex(txH), hash: txH }], note });
+      } else {
+        setResult(receiptToResult(txR, txH, amountLabel));
+        const bn = raw?.block_number;
+        if (typeof bn === "number") { setLastTxBlock(bn); setHeadBlock(bn); }
+        else {
+          try { const n = await provider.getBlockNumber(); setLastTxBlock(n); setHeadBlock(n); } catch { /* ignore */ }
+        }
+      }
     } catch (error: any) {
+      const msg = error?.message ?? error?.toString?.() ?? String(error);
       setResult({
         status: "error",
         title: "Could not confirm transaction",
         rows: [{ label: "Transaction", value: shortHex(txH), hash: txH }],
-        note: error?.message ?? error?.toString?.() ?? String(error),
+        note: isScreeningError(msg) ? screeningNote(msg) : msg,
       });
     }
     return txH;
@@ -562,10 +607,21 @@ export default function WalletAccountV6Tag() {
         </>
       )}
 
+      {!canAct && lastTxBlock !== null && (
+        <div className={styles.warn}>
+          10-block finality: wait {blocksRemaining} more block{blocksRemaining === 1 ? "" : "s"} (head {headBlock ?? "…"} · last tx {lastTxBlock}).
+        </div>
+      )}
+
       {/* Primary CTA - connect prompt until a wallet is connected. */}
       {isConnected ? (
-        <button className={styles.btnCta} disabled={active.disabled} onClick={active.onRun}>
-          {active.cta}
+        <button
+          className={styles.btnCta}
+          disabled={active.disabled || !canAct}
+          onClick={active.onRun}
+          title={!canAct ? `Wait ${blocksRemaining} blocks` : undefined}
+        >
+          {!canAct ? `Wait ${blocksRemaining} blocks` : active.cta}
         </button>
       ) : (
         <SelectWallet variant="ctaBig" />

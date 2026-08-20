@@ -42,6 +42,10 @@ export function echoHelperForIndex(index: number): string {
     return "0x0";
 }
 
+// STRK20 privacy pool (SN_MAIN + Sepolia share the same address in this deployment).
+export const POOL_ADDRESS =
+  "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a";
+
 // Frontend provider indices where the STRK20 privacy pool is available, mapped to a
 // display name. Used to gate the WalletAccountV6 STRK20 actions.
 export const Strk20Networks: Record<number, string> = { 0: "MAINNET", 2: "SEPOLIA" };
