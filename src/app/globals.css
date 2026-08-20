@@ -1,0 +1,23 @@
+* { box-sizing: border-box; margin: 0; }
+*:not(button) { padding: 0; }
+
+html {
+  color-scheme: dark;
+  max-width: 100vw;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  color: #f1f2f6;
+  background: #07090d;
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0a0c12; }
+::-webkit-scrollbar-thumb { background: #232636; border-radius: 999px; }
