@@ -40,14 +40,44 @@ ctx.on("page", (pg) => {
 function pickPage(which) {
   const pages = ctx.pages();
   if (which === "ext") {
-    return (
-      pages.find((p) => p.url().includes(EXT_ID)) ??
-      pages.find((p) => p.url().startsWith("chrome-extension://")) ??
-      null
-    );
+    // STRICT: only a live extension page counts, no fallback to pages[0]
+    return pages.find((p) => p.url().includes(EXT_ID)) ?? null;
   }
-  if (which === "app") return pages.find((p) => p.url().includes("shadowpay")) ?? null;
+  if (which === "app") return pages.find((p) => /shadowpay/.test(p.url())) ?? null;
   return pages[0] ?? null;
+}
+
+// Recover a missing surface tab instead of driving about:blank:
+// app -> open the site fresh; ext -> open the wallet fullpage UI.
+// Sweep orphaned blanks so they never accumulate or get driven by mistake.
+async function sweepBlanks() {
+  for (const pg of ctx.pages()) {
+    try {
+      if (pg.url() === "about:blank" || pg.url() === "") await pg.close();
+    } catch {}
+  }
+}
+
+async function ensurePage(which) {
+  await sweepBlanks();
+  let p = pickPage(which);
+  if (p && p.url() !== "about:blank") return p;
+  const url =
+    which === "ext"
+      ? `chrome-extension://${EXT_ID}/index.html`
+      : "https://shadowpay-green.vercel.app/";
+  p = await ctx.newPage();
+  await p.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+  await p.waitForTimeout(1200);
+  if (p.url() === "about:blank") {
+    // navigation raced or was blocked: close and retry once, never hand back a blank
+    await p.close().catch(() => {});
+    p = await ctx.newPage();
+    await p.goto(url, { waitUntil: "load", timeout: 60000 });
+    await p.waitForTimeout(1200);
+  }
+  await ensureCursor(p);
+  return p;
 }
 
 const json = (res, code, body) => {
@@ -64,20 +94,20 @@ createServer(async (req, res) => {
       case "pages":
         return json(res, 200, ctx.pages().map((p) => p.url().slice(0, 100)));
       case "text": {
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const t = await p.locator("body").innerText();
         return json(res, 200, { url: p.url(), text: t.slice(0, 2500) });
       }
       case "shot": {
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const path = q.get("path") ?? "scripts/remote-shot.png";
         await p.screenshot({ path });
         return json(res, 200, { ok: true, path, url: p.url() });
       }
       case "click": {
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const text = q.get("text");
         if (text) await p.getByText(text, { exact: q.get("exact") === "1" }).first().click({ timeout: 4000 });
@@ -87,21 +117,21 @@ createServer(async (req, res) => {
         return json(res, 200, { ok: true, url: p.url(), text: (await p.locator("body").innerText()).slice(0, 800) });
       }
       case "wheel": {
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         await p.mouse.wheel(0, Number(q.get("dy") ?? 500));
         await p.waitForTimeout(500);
         return json(res, 200, { ok: true, text: (await p.locator("body").innerText()).slice(0, 800) });
       }
       case "eval": {
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const r = await p.evaluate(q.get("code"));
         return json(res, 200, { result: String(r).slice(0, 1500) });
       }
       case "cmove": {
         // human drawn-cursor move to viewport coords
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const x = Number(q.get("x")), y = Number(q.get("y"));
         await p.bringToFront().catch(() => {});
@@ -111,7 +141,7 @@ createServer(async (req, res) => {
       }
       case "cclick": {
         // drawn-cursor move + click ring + real CDP click
-        const p = pickPage(q.get("page"));
+        const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
         const x = Number(q.get("x")), y = Number(q.get("y"));
         await p.bringToFront().catch(() => {});
@@ -122,6 +152,13 @@ createServer(async (req, res) => {
         await p.mouse.click(x, y);
         await p.waitForTimeout(500);
         return json(res, 200, { ok: true, url: p.url(), text: (await p.locator("body").innerText()).slice(0, 600) });
+      }
+      case "goto": {
+        const p = await ensurePage(q.get("page"));
+        await p.goto(q.get("url"), { waitUntil: "domcontentloaded", timeout: 45000 });
+        await p.waitForTimeout(1200);
+        await ensureCursor(p);
+        return json(res, 200, { ok: true, url: p.url() });
       }
       default:
         return json(res, 400, { error: "unknown cmd " + cmd });
