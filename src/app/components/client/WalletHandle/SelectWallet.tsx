@@ -7,6 +7,7 @@ import { walletV6, validateAndParseAddress, constants as SNconstants, WalletAcco
 import { WALLET_API } from "@starknet-io/types-js";
 import { myFrontendProviders } from "@/utils/constants";
 import { createStore, type Store } from "@starknet-io/get-starknet-discovery";
+import { StarknetInjectedWallet } from "@starknet-io/get-starknet-wallet-standard";
 import type {
   WalletWithStarknetFeatures,
 } from '@starknet-io/get-starknet-wallet-standard/features';
@@ -46,9 +47,21 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
   // before the user opens the picker. eip1193Adapters:[] keeps MetaMask out entirely
   // (no EIP-6963 MetaMask bridging / Snap probing).
   useEffect(() => {
+    const withLegacyFallback = (list: WalletWithStarknetFeatures[]) => {
+      // Some wallets inject window.starknet but never send EIP-6963 announcements
+      // (announces only fire on pages loaded while the wallet is awake/unlocked).
+      // Wrap the legacy object so the picker still lists them.
+      const legacy = typeof window !== "undefined" ? (window as any).starknet : null;
+      if (!list.length && legacy?.name) {
+        try {
+          return [new StarknetInjectedWallet(legacy) as unknown as WalletWithStarknetFeatures];
+        } catch { /* fall through to the empty list */ }
+      }
+      return list;
+    };
     const store: Store = createStore({ eip1193Adapters: [] });
-    setWallets(store.getWallets().slice());
-    const unsub = store.subscribe((next) => setWallets(next.slice()));
+    setWallets(withLegacyFallback(store.getWallets().slice()));
+    const unsub = store.subscribe((next) => setWallets(withLegacyFallback(next.slice())));
     return () => unsub();
   }, []);
 
