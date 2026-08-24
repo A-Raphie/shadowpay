@@ -2,7 +2,7 @@
 import styles from "../../../uni.module.css";
 import { useStoreWallet } from "../../Wallet/walletContext";
 import { useFrontendProvider } from "../provider/providerContext";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { walletV6, validateAndParseAddress, constants as SNconstants, WalletAccountV6 } from "starknet";
 import { WALLET_API } from "@starknet-io/types-js";
 import { myFrontendProviders } from "@/utils/constants";
@@ -76,6 +76,37 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
       }
     }, 500);
     return () => { unsub(); clearInterval(iv); };
+  }, []);
+
+  // AutoReconnect: on page load, silently resume a previously-authorized wallet
+  // instead of dropping the user back to "Connect a Wallet" after every reload.
+  // Only runs once on mount, never after a manual Disconnect.
+  const reconnectTried = useRef(false);
+  useEffect(() => {
+    if (reconnectTried.current) return;
+    reconnectTried.current = true;
+    let cancelled = false;
+    const tryReconnect = async () => {
+      for (let i = 0; i < 10 && !cancelled; i++) {
+        await new Promise((r) => setTimeout(r, 600));
+        const legacy = typeof window !== "undefined" ? (window as any).starknet : null;
+        const wallet = legacy?.name
+          ? (new StarknetInjectedWallet(legacy) as unknown as WalletWithStarknetFeatures)
+          : null;
+        if (!wallet) continue;
+        try {
+          // A locked or unauthorized wallet rejects silently: stay disconnected
+          const perms = await walletV6.getPermissions(wallet as any);
+          if ((perms as WALLET_API.Permission[]).includes(WALLET_API.Permission.ACCOUNTS)) {
+            await handleSelectedWallet(wallet);
+          }
+          return;
+        } catch { return; }
+      }
+    };
+    tryReconnect();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Show every detected wallet except MetaMask (its Snap probing spams an unlock popup)
