@@ -36,15 +36,15 @@
 
 ### Scene 5: Private transfer (1:30-2:10)
 **Criterion:** Integration depth
-**Show:** 10-block countdown in app → SEND tab, amount 1, Self transfer → wallet review (Private send: -1.0 [STRK] to +1.0 [STRK]) → Confirm → receipt
+**Show:** App 10-block countdown guard → wallet Activity: the real Private transfer entry (already executed, real hash) → tx detail with Success status
 **Say:** Notes mature for ten blocks, and the app counts them down for me. Now the part nobody can see: I send one shielded token, note to note. No amount on chain. No sender. No receiver. Just a nullifier and a proof.
-**Action:** Wait on countdown (compress in edit if needed), click SEND, type 1, click Self transfer, Confirm in wallet, receipt appears.
+**Action:** Show the app's countdown guard state, open wallet Activity in same window, click the Private transfer entry, hold tx detail 3s.
 
 ### Scene 6: Unshield and employee side (2:10-2:35)
 **Criterion:** Working mainnet
-**Show:** UNSHIELD tab, 0.5, → wallet review (0.5 [STRK] out, 0.5 STRK public in) → Confirm → receipt → quick scroll past Org batch pay + Employee claim panels
+**Show:** Wallet Activity: the real Unshield entry (+0.5 STRK) → back to app → scroll Org batch pay + Employee claim panels
 **Say:** And out again. Half a shielded token becomes public again, spendable at any address. For a team, the org panel pays many people in one private batch, and employees claim with their own viewing keys.
-**Action:** Click UNSHIELD, type 0.5, Confirm, receipt, scroll to payroll panels, hold 2s.
+**Action:** Click the Unshield entry in Activity, hold, back to app, scroll to payroll panels, hold 2s.
 
 ### Scene 7: Close (2:35-2:50)
 **Criterion:** Docs + all
