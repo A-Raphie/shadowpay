@@ -62,7 +62,20 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
     const store: Store = createStore({ eip1193Adapters: [] });
     setWallets(withLegacyFallback(store.getWallets().slice()));
     const unsub = store.subscribe((next) => setWallets(withLegacyFallback(next.slice())));
-    return () => unsub();
+    // Content scripts can inject window.starknet AFTER hydration: poll briefly
+    // so the fallback still catches late injections.
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries++;
+      const legacy = typeof window !== "undefined" ? (window as any).starknet : null;
+      if (legacy?.name) {
+        setWallets((prev) => (prev.length ? prev : withLegacyFallback([])));
+        clearInterval(iv);
+      } else if (tries > 30) {
+        clearInterval(iv);
+      }
+    }, 500);
+    return () => { unsub(); clearInterval(iv); };
   }, []);
 
   // Show every detected wallet except MetaMask (its Snap probing spams an unlock popup)
