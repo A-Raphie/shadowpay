@@ -13,6 +13,8 @@ interface FrontEndProviderState {
 }
 
 export const useFrontendProvider = create<FrontEndProviderState>()(set => ({
-    currentFrontendProviderIndex: 2,
+    // default to mainnet: this is a mainnet product, and the Sepolia endpoint
+    // throws SSL errors when polled before a wallet switches the chain
+    currentFrontendProviderIndex: 0,
     setCurrentFrontendProviderIndex: (currentFrontendProviderIndex: number) => { set(state => ({ currentFrontendProviderIndex })) }
 }));
