@@ -72,6 +72,11 @@ function prettyStatus(finality?: string, exec?: string): string {
 function isScreeningError(msg: string): boolean {
   return /screen|compliance|denied|blocked/i.test(msg);
 }
+function isRegisterError(msg: string): boolean { return /NOT_REGISTERED/i.test(msg); }
+function registerNote(): string {
+  return "This wallet has not enabled private tokens yet. Open your wallet, start a Shield once, and confirm the one-time activation. Then come back and try again.";
+}
+
 function screeningNote(msg: string): string {
   return `Screened by compliance signer · this deposit was rejected on-chain.\nTry a smaller amount (2–3 STRK) or a different route.\nRaw: ${msg}`;
 }
@@ -247,8 +252,8 @@ export default function WalletAccountV6Tag() {
       txH = r.transaction_hash;
     } catch (error: any) {
       const msg = error?.message ?? error?.toString?.() ?? String(error);
-      const note = isScreeningError(msg) ? screeningNote(msg) : msg;
-      const title = isScreeningError(msg) ? "Deposit screened" : "Action failed";
+      const note = isRegisterError(msg) ? registerNote() : isScreeningError(msg) ? screeningNote(msg) : msg;
+      const title = isRegisterError(msg) ? "Activate private tokens first" : isScreeningError(msg) ? "Deposit screened" : "Action failed";
       setResult({ status: "error", title, note });
       return undefined;
     }
@@ -271,8 +276,8 @@ export default function WalletAccountV6Tag() {
       const raw = txR?.value ?? txR;
       if (raw?.execution_status === "REVERTED") {
         const revertMsg = raw?.revert_reason ?? raw?.execution_status ?? "";
-        const note = isScreeningError(revertMsg) ? screeningNote(revertMsg) : revertMsg;
-        const title = isScreeningError(revertMsg) ? "Deposit screened" : "Transaction reverted";
+        const note = isRegisterError(revertMsg) ? registerNote() : isScreeningError(revertMsg) ? screeningNote(revertMsg) : revertMsg;
+        const title = isRegisterError(revertMsg) ? "Activate private tokens first" : isScreeningError(revertMsg) ? "Deposit screened" : "Transaction reverted";
         setResult({ status: "error", title, rows: [{ label: "Transaction", value: shortHex(txH), hash: txH }], note });
       } else {
         setResult(receiptToResult(txR, txH, amountLabel));
@@ -288,7 +293,7 @@ export default function WalletAccountV6Tag() {
         status: "error",
         title: "Could not confirm transaction",
         rows: [{ label: "Transaction", value: shortHex(txH), hash: txH }],
-        note: isScreeningError(msg) ? screeningNote(msg) : msg,
+        note: isRegisterError(msg) ? registerNote() : isScreeningError(msg) ? screeningNote(msg) : msg,
       });
     }
     return txH;

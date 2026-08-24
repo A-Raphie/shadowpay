@@ -29,6 +29,7 @@ const ctx = await chromium.launchPersistentContext(PROFILE, {
     `--load-extension=${EXT_DST}`,
     "--window-size=1280,860",
     "--remote-debugging-port=9222",
+    "--hide-crash-restore-bubble",
   ],
 });
 

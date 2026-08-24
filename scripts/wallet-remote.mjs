@@ -10,10 +10,32 @@
 //   curl 'http://127.0.0.1:9333/eval?page=app&code=document.title'
 import { chromium } from "playwright";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { injectCursor, moveCursor, cursorPos } = require("/Users/raphie/.agents/skills/demo-video/scripts/cursor.js");
 
 const EXT_ID = "dlcobpjiigpikoobohmabehhmhfoodbb";
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const ctx = browser.contexts()[0];
+
+async function ensureCursor(pg) {
+  try {
+    const has = await pg.evaluate(() => !!window.__demoMove);
+    if (has) return true;
+    await injectCursor(pg);
+    return await pg.evaluate(() => !!window.__demoMove);
+  } catch {
+    return false;
+  }
+}
+// inject on all current pages
+for (const pg of ctx.pages()) await ensureCursor(pg);
+// and on every future page (wallet approval tabs)
+ctx.on("page", (pg) => {
+  pg.waitForLoadState("domcontentloaded").catch(() => {});
+  ensureCursor(pg);
+});
 
 function pickPage(which) {
   const pages = ctx.pages();
@@ -76,6 +98,30 @@ createServer(async (req, res) => {
         if (!p) return json(res, 404, { error: "no page" });
         const r = await p.evaluate(q.get("code"));
         return json(res, 200, { result: String(r).slice(0, 1500) });
+      }
+      case "cmove": {
+        // human drawn-cursor move to viewport coords
+        const p = pickPage(q.get("page"));
+        if (!p) return json(res, 404, { error: "no page" });
+        const x = Number(q.get("x")), y = Number(q.get("y"));
+        await p.bringToFront().catch(() => {});
+        await ensureCursor(p);
+        await moveCursor(p, x, y);
+        return json(res, 200, { ok: true, at: await cursorPos(p) });
+      }
+      case "cclick": {
+        // drawn-cursor move + click ring + real CDP click
+        const p = pickPage(q.get("page"));
+        if (!p) return json(res, 404, { error: "no page" });
+        const x = Number(q.get("x")), y = Number(q.get("y"));
+        await p.bringToFront().catch(() => {});
+        await ensureCursor(p);
+        await moveCursor(p, x, y);
+        await p.evaluate(() => window.__demoClick && window.__demoClick());
+        await p.waitForTimeout(250 + Math.floor(Math.random() * 150));
+        await p.mouse.click(x, y);
+        await p.waitForTimeout(500);
+        return json(res, 200, { ok: true, url: p.url(), text: (await p.locator("body").innerText()).slice(0, 600) });
       }
       default:
         return json(res, 400, { error: "unknown cmd " + cmd });
