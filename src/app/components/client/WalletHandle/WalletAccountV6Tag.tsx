@@ -15,8 +15,6 @@ import SelectWallet from "./SelectWallet";
 const TOKEN = constants.addrSTRK;
 // DEMO amounts, in the token's smallest unit (1e18 = 1 STRK). Replace with real
 // UX (user-entered amounts) in your app.
-const TEN_STRK = 10n * 10n ** 18n;
-const FIVE_STRK = 5n * 10n ** 18n;
 const ONE_STRK = 1n * 10n ** 18n;
 
 // Format a felt amount (STRK, 18 decimals) as a human STRK string ("10", "1.5").
@@ -533,7 +531,7 @@ export default function WalletAccountV6Tag() {
     TabKey,
     { label: string; value: string; token: string; hint: string; cta: string; onRun: () => void; result: ActionResult | null; disabled: boolean }
   > = {
-    shield: { label: "You're shielding", value: "10", token: "STRK", hint: "Deposit into the privacy pool", cta: "Shield", onRun: handleShield, result: resultShield, disabled: !isStrk20Network },
+    shield: { label: "You're shielding", value: "1", token: "STRK", hint: "Deposit into the privacy pool", cta: "Shield", onRun: handleShield, result: resultShield, disabled: !isStrk20Network },
     send: { label: "You're sending - to self", value: "1", token: "STRK", hint: "Private in-pool transfer", cta: "Self transfer", onRun: handleSelfTransfer, result: resultTransfer, disabled: !isStrk20Network },
     unshield: { label: "You're unshielding", value: "1", token: "STRK", hint: "Withdraw to your account", cta: "Unshield", onRun: handleUnshield, result: resultUnshield, disabled: !isStrk20Network },
     echo: { label: "Echo invoke round-trip", value: "5", token: "STRK", hint: "Withdraw → helper → refill open note", cta: "Run echo", onRun: handleComplex, result: resultComplex, disabled: !isStrk20Network || !hasEchoHelper },
