@@ -345,7 +345,7 @@ export default function WalletAccountV6Tag() {
   const handleShield = async () => {
     setResultShield(null);
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "deposit", token: TOKEN, amount: num.toHex(TEN_STRK) },
+      { type: "deposit", token: TOKEN, amount: num.toHex(ONE_STRK) },
     ];
     await submit(actions, setResultShield, "10 STRK");
   };
@@ -388,7 +388,7 @@ export default function WalletAccountV6Tag() {
     // "OPEN" / ${poolAddress} / ${openNoteIds[0]} are literal placeholder strings the
     // wallet substitutes during assembly - they must NOT be hex-normalized.
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "withdraw", token: TOKEN, amount: num.toHex(FIVE_STRK), recipient: helper },
+      { type: "withdraw", token: TOKEN, amount: num.toHex(ONE_STRK), recipient: helper },
       { type: "transfer", token: TOKEN, amount: "OPEN", recipient: connectedAddress },
       {
         type: "invoke",
@@ -453,7 +453,7 @@ export default function WalletAccountV6Tag() {
       const noteId = ev.keys[1] as string;
       const amount = ev.data[0] as string;
       const caller = ev.data[1] as string;
-      const amountOk = num.toBigInt(amount) === FIVE_STRK;
+      const amountOk = num.toBigInt(amount) === ONE_STRK;
       return {
         ok: amountOk,
         title: amountOk ? "Echo verified - open note filled with 5 STRK" : "Event found, but amount mismatch",
