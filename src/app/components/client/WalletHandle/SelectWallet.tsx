@@ -121,7 +121,9 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
   async function handleSelectedWallet(selectedWallet: WalletWithStarknetFeatures) {
     setMyWallet(selectedWallet); // zustand
     console.log("Trying to connect wallet=", selectedWallet);
-    const myWA = await WalletAccountV6.connect(myFrontendProviders[2], selectedWallet);
+    // connect on the mainnet provider directly: this is a mainnet product and the
+    // Sepolia endpoint fails SSL on some networks, throwing page errors
+    const myWA = await WalletAccountV6.connect(myFrontendProviders[0], selectedWallet);
     setMyWalletAccount(myWA);
     console.log("WalletAccount created=", myWA);
     const result = await walletV6.requestAccounts(selectedWallet);
