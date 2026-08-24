@@ -23,33 +23,33 @@
 ### Scene 3: Deployment proof (0:30-0:48)
 **Criterion:** Working mainnet
 **Show:** Deployment table: pool 0x0403…12a, STRK token, echo helper, each with StarkScan link
-**Say:** All of it runs against the canonical pool on mainnet, right now. Every address on screen is clickable, straight to StarkScan. Chain SN_MAIN.
+**Say:** All of it runs against the canonical pool on mainnet, right now. Every address on screen is clickable, straight to StarkScan.
 **Action:** Scroll to deployment section, hover the pool row, cursor clicks the StarkScan link, explorer loads in same tab, hold 3s, back to app.
 **Visual:** Same-tab navigation (no new tab).
 
 ### Scene 4: Connect and shield (0:48-1:30)
 **Criterion:** Integration depth + Working mainnet
 **Show:** App panel: Connect → Ready X approval in wallet window → amount 7 typed → Shield → wallet Review screen (-7.0 STRK / +1.0 [STRK] shielded / 6.0 reserved for pool fee / $0.17) → Confirm → app receipt with tx hash
-**Say:** I connect Ready X and shield seven STRK. The wallet shows exactly what happens: one comes back as a shielded note, six covers the pool fee, and the deposit is screened. Signed. On chain. And the receipt lands in the app with a hash I can audit.
+**Say:** I connect Ready X and shield seven stark. The wallet shows exactly what happens: one comes back as a shielded note, six covers the pool fee, and the deposit is screened. Signed. On chain. And the receipt lands in the app with a hash I can audit.
 **Action:** drawn cursor: click Connect → approve in wallet window → click amount field, type 7 → click Shield → wallet review appears → click Confirm → wait → receipt card visible with hash + explorer link.
 **Visual:** All clicks via drawn cursor with rings; speak the numbers on screen (seven, one, six).
 
 ### Scene 5: Private transfer (1:30-2:10)
 **Criterion:** Integration depth
 **Show:** 10-block countdown in app → SEND tab, amount 1, Self transfer → wallet review (Private send: -1.0 [STRK] to +1.0 [STRK]) → Confirm → receipt
-**Say:** Notes mature for ten blocks, and the app counts them down for me. Now the part nobody can see: I send one shielded STRK, note to note. No amount on chain. No sender. No receiver. Just a nullifier and a proof.
+**Say:** Notes mature for ten blocks, and the app counts them down for me. Now the part nobody can see: I send one shielded token, note to note. No amount on chain. No sender. No receiver. Just a nullifier and a proof.
 **Action:** Wait on countdown (compress in edit if needed), click SEND, type 1, click Self transfer, Confirm in wallet, receipt appears.
 
 ### Scene 6: Unshield and employee side (2:10-2:35)
 **Criterion:** Working mainnet
 **Show:** UNSHIELD tab, 0.5, → wallet review (0.5 [STRK] out, 0.5 STRK public in) → Confirm → receipt → quick scroll past Org batch pay + Employee claim panels
-**Say:** And out again. Half a shielded STRK becomes public STRK to any address. For a team, the org panel pays many people in one private batch, and employees claim with their own viewing keys.
+**Say:** And out again. Half a shielded token becomes public again, spendable at any address. For a team, the org panel pays many people in one private batch, and employees claim with their own viewing keys.
 **Action:** Click UNSHIELD, type 0.5, Confirm, receipt, scroll to payroll panels, hold 2s.
 
 ### Scene 7: Close (2:35-2:50)
 **Criterion:** Docs + all
 **Show:** Footer + repo README on screen: github.com/A-Raphie/shadowpay, live URL, pool address
-**Say:** Four verified mainnet transactions are in our strk20.json. The app, the source, and the pool are on screen right now. ShadowPay: the chain pays, never tells.
+**Say:** Four verified mainnet transactions are listed by hash in the repo. The app, the source, and the pool are on screen right now. ShadowPay: the chain pays, never tells.
 **Action:** Navigate to repo README, hold links on screen 5s. No clicks.
 
 ---
