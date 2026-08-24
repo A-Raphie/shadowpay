@@ -1,0 +1,13 @@
+On Starknet, a salary is public record. Anyone can watch every paycheck land, and total up what anyone earns. This is ShadowPay: payroll where the chain pays, but never tells.
+
+Here is the honest split. Going in and coming out, deposits and withdrawals are public, and screened for compliance. In between, note to note transfers hide the amount and both sides. Not a mixer. Notes, with real proofs.
+
+All of it runs against the canonical pool on mainnet, right now. Every address on screen is clickable, straight to StarkScan. Chain SN_MAIN.
+
+I connect Ready X and shield seven STRK. The wallet shows exactly what happens: one comes back as a shielded note, six covers the pool fee, and the deposit is screened. Signed. On chain. And the receipt lands in the app with a hash I can audit.
+
+Notes mature for ten blocks, and the app counts them down for me. Now the part nobody can see: I send one shielded STRK, note to note. No amount on chain. No sender. No receiver. Just a nullifier and a proof.
+
+And out again. Half a shielded STRK becomes public STRK to any address. For a team, the org panel pays many people in one private batch, and employees claim with their own viewing keys.
+
+Four verified mainnet transactions are in our strk20.json. The app, the source, and the pool are on screen right now. ShadowPay: the chain pays, never tells.
