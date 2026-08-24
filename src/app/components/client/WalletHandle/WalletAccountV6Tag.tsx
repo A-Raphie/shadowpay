@@ -17,6 +17,19 @@ const TOKEN = constants.addrSTRK;
 // UX (user-entered amounts) in your app.
 const ONE_STRK = 1n * 10n ** 18n;
 
+// Parse a human STRK amount ("1", "0.2") into wei. 18 decimals, no negatives.
+function parseAmountToWei(s: string): bigint | null {
+  const t = s.trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const [whole, fracRaw = ""] = t.split(".");
+  const frac = (fracRaw + "000000000000000000").slice(0, 18);
+  try {
+    return BigInt(whole) * 10n ** 18n + BigInt(frac);
+  } catch {
+    return null;
+  }
+}
+
 // Format a felt amount (STRK, 18 decimals) as a human STRK string ("10", "1.5").
 function fmtStrk(amount: bigint): string {
   const whole = amount / 10n ** 18n;
@@ -183,6 +196,8 @@ export default function WalletAccountV6Tag() {
   const [deploying, setDeploying] = useState<boolean>(false);
   // Active action tab (Umbra-style single-action interface).
   const [tab, setTab] = useState<TabKey>("shield");
+  // User-entered action amount in STRK. Drives every action tab.
+  const [amountStr, setAmountStr] = useState("1");
 
   const getWAchainId = () => {
     myWalletAccount?.provider
@@ -342,10 +357,14 @@ export default function WalletAccountV6Tag() {
 
   const handleShield = async () => {
     setResultShield(null);
+    if (!amountWei) {
+      setResultShield(errorResult("Enter a valid STRK amount."));
+      return;
+    }
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "deposit", token: TOKEN, amount: num.toHex(ONE_STRK) },
+      { type: "deposit", token: TOKEN, amount: num.toHex(amountWei) },
     ];
-    await submit(actions, setResultShield, "10 STRK");
+    await submit(actions, setResultShield, amountLabel);
   };
 
   const handleUnshield = async () => {
@@ -354,10 +373,14 @@ export default function WalletAccountV6Tag() {
       setResultUnshield(errorResult("Connect a wallet first (recipient = connected account)."));
       return;
     }
+    if (!amountWei) {
+      setResultUnshield(errorResult("Enter a valid STRK amount."));
+      return;
+    }
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "withdraw", token: TOKEN, amount: num.toHex(ONE_STRK), recipient: connectedAddress },
+      { type: "withdraw", token: TOKEN, amount: num.toHex(amountWei), recipient: connectedAddress },
     ];
-    await submit(actions, setResultUnshield, "1 STRK");
+    await submit(actions, setResultUnshield, amountLabel);
   };
 
   const handleSelfTransfer = async () => {
@@ -366,10 +389,14 @@ export default function WalletAccountV6Tag() {
       setResultTransfer(errorResult("Connect a wallet first (recipient = connected account)."));
       return;
     }
+    if (!amountWei) {
+      setResultTransfer(errorResult("Enter a valid STRK amount."));
+      return;
+    }
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "transfer", token: TOKEN, amount: num.toHex(ONE_STRK), recipient: connectedAddress },
+      { type: "transfer", token: TOKEN, amount: num.toHex(amountWei), recipient: connectedAddress },
     ];
-    await submit(actions, setResultTransfer, "1 STRK");
+    await submit(actions, setResultTransfer, amountLabel);
   };
 
   // Complex action - echo invoke round-trip: withdraw 5 STRK to the helper, create an
@@ -383,10 +410,14 @@ export default function WalletAccountV6Tag() {
       return;
     }
     const helper = num.toHex(echoHelperAddr);
+    if (!amountWei) {
+      setResultComplex(errorResult("Enter a valid STRK amount."));
+      return;
+    }
     // "OPEN" / ${poolAddress} / ${openNoteIds[0]} are literal placeholder strings the
     // wallet substitutes during assembly - they must NOT be hex-normalized.
     const actions: WALLET_API.STRK20_ACTION[] = [
-      { type: "withdraw", token: TOKEN, amount: num.toHex(ONE_STRK), recipient: helper },
+      { type: "withdraw", token: TOKEN, amount: num.toHex(amountWei), recipient: helper },
       { type: "transfer", token: TOKEN, amount: "OPEN", recipient: connectedAddress },
       {
         type: "invoke",
@@ -394,7 +425,7 @@ export default function WalletAccountV6Tag() {
         calldata: [num.toHex(TOKEN), "${poolAddress}", "${openNoteIds[0]}"],
       },
     ];
-    const txH = await submit(actions, setResultComplex, "5 STRK");
+    const txH = await submit(actions, setResultComplex, amountLabel);
     if (!txH) return;
     setVerdictComplex({
       ok: false,
@@ -402,12 +433,12 @@ export default function WalletAccountV6Tag() {
       title: "Verifying on-chain…",
       rows: [{ label: "tx", value: shortHex(txH) }],
     });
-    setVerdictComplex(await verifyEcho(txH));
+    setVerdictComplex(await verifyEcho(txH, amountWei));
   };
 
   // Fetch the tx receipt and verify the helper's Invoked event: the open note was filled
   // with the 5 STRK we withdrew. Returns a pass/fail verdict (never throws).
-  async function verifyEcho(txHash: string): Promise<Verdict> {
+  async function verifyEcho(txHash: string, expectedWei: bigint): Promise<Verdict> {
     try {
       // Use the frontend provider that tracks the current network, not
       // myWalletAccount.provider which is fixed at connect time.
@@ -451,10 +482,10 @@ export default function WalletAccountV6Tag() {
       const noteId = ev.keys[1] as string;
       const amount = ev.data[0] as string;
       const caller = ev.data[1] as string;
-      const amountOk = num.toBigInt(amount) === ONE_STRK;
+      const amountOk = num.toBigInt(amount) === expectedWei;
       return {
         ok: amountOk,
-        title: amountOk ? "Echo verified - open note filled with 5 STRK" : "Event found, but amount mismatch",
+        title: amountOk ? `Echo verified - open note filled with ${fmtStrk(expectedWei)} STRK` : "Event found, but amount mismatch",
         rows: [
           { label: "note_id", value: shortHex(noteId), ok: true },
           { label: "amount", value: `${fmtStrk(num.toBigInt(amount))} STRK`, ok: amountOk },
@@ -525,16 +556,19 @@ export default function WalletAccountV6Tag() {
     </div>
   );
 
-  // Per-tab content: label, the fixed amount + token, a one-line hint, the CTA
-  // label, its handler, and the structured result.
+  // Per-tab content: label, hint, the CTA label, its handler, and the structured
+  // result. The amount itself is the shared user-entered input (except balances).
+  const amountWei = parseAmountToWei(amountStr);
+  const amountValid = amountWei !== null && amountWei > 0n;
+  const amountLabel = amountValid ? `${amountStr.trim()} STRK` : "invalid amount";
   const CONFIG: Record<
     TabKey,
     { label: string; value: string; token: string; hint: string; cta: string; onRun: () => void; result: ActionResult | null; disabled: boolean }
   > = {
-    shield: { label: "You're shielding", value: "1", token: "STRK", hint: "Deposit into the privacy pool", cta: "Shield", onRun: handleShield, result: resultShield, disabled: !isStrk20Network },
-    send: { label: "You're sending - to self", value: "1", token: "STRK", hint: "Private in-pool transfer", cta: "Self transfer", onRun: handleSelfTransfer, result: resultTransfer, disabled: !isStrk20Network },
-    unshield: { label: "You're unshielding", value: "1", token: "STRK", hint: "Withdraw to your account", cta: "Unshield", onRun: handleUnshield, result: resultUnshield, disabled: !isStrk20Network },
-    echo: { label: "Echo invoke round-trip", value: "5", token: "STRK", hint: "Withdraw → helper → refill open note", cta: "Run echo", onRun: handleComplex, result: resultComplex, disabled: !isStrk20Network || !hasEchoHelper },
+    shield: { label: "You're shielding", value: amountStr, token: "STRK", hint: "Deposit into the privacy pool", cta: "Shield", onRun: handleShield, result: resultShield, disabled: !isStrk20Network || !amountValid },
+    send: { label: "You're sending - to self", value: amountStr, token: "STRK", hint: "Private in-pool transfer", cta: "Self transfer", onRun: handleSelfTransfer, result: resultTransfer, disabled: !isStrk20Network || !amountValid },
+    unshield: { label: "You're unshielding", value: amountStr, token: "STRK", hint: "Withdraw to your account", cta: "Unshield", onRun: handleUnshield, result: resultUnshield, disabled: !isStrk20Network || !amountValid },
+    echo: { label: "Echo invoke round-trip", value: amountStr, token: "STRK", hint: "Withdraw → helper → refill open note", cta: "Run echo", onRun: handleComplex, result: resultComplex, disabled: !isStrk20Network || !hasEchoHelper || !amountValid },
     balances: { label: "Shielded balances", value: "All", token: "tokens", hint: "Read your private pool balances", cta: "Query balances", onRun: handleBalances, result: resultBalances, disabled: !isStrk20Network },
   };
   const active = CONFIG[tab];
@@ -558,7 +592,19 @@ export default function WalletAccountV6Tag() {
       <div className={styles.inputBlock}>
         <div className={styles.inputLabel}>{active.label}</div>
         <div className={styles.inputMain}>
-          <div className={styles.bigValue}>{active.value}</div>
+          {tab === "balances" ? (
+            <div className={styles.bigValue}>{active.value}</div>
+          ) : (
+            <input
+              className={styles.bigInput}
+              value={amountStr}
+              onChange={(e) => setAmountStr(e.target.value)}
+              inputMode="decimal"
+              spellCheck={false}
+              aria-label="Amount in STRK"
+              placeholder="0.0"
+            />
+          )}
           <span className={styles.tokenPill}>
             <span className={styles.tokenDot}>
               <StrkCoin size={22} />

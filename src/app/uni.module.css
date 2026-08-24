@@ -334,6 +334,15 @@
 .inputLabel { font-family: var(--font-mono-ui), monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 .inputMain { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 12px; flex-wrap: wrap; }
 .bigValue { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; color: #fff; }
+.bigInput {
+  font-family: var(--font-mono-ui), monospace;
+  font-size: 28px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink);
+  background: transparent; border: none;
+  border-bottom: 2px dashed var(--line);
+  width: 150px; padding: 2px 0;
+}
+.bigInput:focus { outline: none; border-bottom-color: var(--accent); }
+.bigInput::placeholder { color: var(--muted-2); }
 .tokenPill {
   display: inline-flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,0.06); border: 1px solid var(--line);
@@ -457,6 +466,7 @@
   .panelBody { padding: 14px; }
   .inputMain { flex-wrap: wrap; }
   .bigValue { font-size: 24px; }
+  .bigInput { font-size: 24px; width: 120px; }
   .feeRow { flex-wrap: wrap; gap: 8px; }
   .flowBar { border-radius: 16px; padding: 10px 12px; }
   /* Payroll inputs stack full width */
