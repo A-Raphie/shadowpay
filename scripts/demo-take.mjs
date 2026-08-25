@@ -1,6 +1,7 @@
 // ShadowPay demo take runner. Paced by VO beats (/tmp/vo-beats/beat-NN.wav).
 // Usage: node scripts/demo-take.mjs        (real take: scenes 1-7, spends ~10 STRK)
 //        node scripts/demo-take.mjs dry    (coordinate lock pass: scenes 1-3 + 7, no VO, no spend)
+//        node scripts/demo-take.mjs mux [out.mp4]  (stop recorder + mux with head trim, no scenes)
 import { spawn, execSync } from "node:child_process";
 import { promisify } from "node:util";
 const exec = promisify(spawn);
@@ -83,9 +84,15 @@ async function restartRecorder() {
   // clear any stale output, spawn, then verify the PROCESS is alive.
   const { rmSync } = await import("node:fs");
   try { rmSync(REC_FILE); } catch {}
-  spawn("screencapture", ["-v", REC_FILE], { detached: true, stdio: "ignore" }).unref();
+  // REGION RECORDING: capture only the browser window's rect. The desktop
+  // around it (other apps, dock, notifications, wrong space) can never enter
+  // the frame, so the take is immune to desktop state.
+  const rect = execSync(`osascript -e 'tell application "System Events" to tell application process "Google Chrome for Testing" to get {position, size} of window 1'`).toString().trim();
+  const [x, y, w, h] = rect.split(", ").map((n) => parseInt(n, 10));
+  say(`recording window region ${x},${y} ${w}x${h}`);
+  spawn("screencapture", ["-v", `-R${x},${y},${w},${h}`, REC_FILE], { detached: true, stdio: "ignore" }).unref();
   await sleep(2500);
-  const alive = execSync(`ps aux | grep '[s]creencapture -v ${REC_FILE}' | wc -l`).toString().trim() !== "0";
+  const alive = execSync(`ps aux | grep "[s]creencapture -v -R" | wc -l`).toString().trim() !== "0";
   if (!alive) throw new Error("recorder process died - aborting take");
   say(`recorder verified alive -> ${REC_FILE}`);
 }
@@ -236,7 +243,32 @@ async function scene7() {
 }
 
 // ---------- Run ----------
+const MUX_OUT = process.argv[3] || new URL("../demo-video/shadowpay-demo-final.mp4", import.meta.url).pathname;
+
+async function stopRecorderAndMux() {
+  // screencapture -v flushes ONLY on SIGINT (writes the file at stop)
+  try {
+    const pids = execSync("ps aux | grep '[s]creencapture -v' | awk '{print $2}'").toString().trim().split("\n").filter(Boolean);
+    for (const pid of pids) process.kill(parseInt(pid, 10), "SIGINT");
+    say(`stopping recorder (${pids.length} pid) to flush ${REC_FILE}`);
+  } catch {}
+  const { existsSync } = await import("node:fs");
+  const t0 = Date.now();
+  while (!existsSync(REC_FILE) && Date.now() - t0 < 30000) await sleep(1000);
+  if (!existsSync(REC_FILE)) throw new Error("recorder never flushed " + REC_FILE);
+  const dur = parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${REC_FILE}`).toString());
+  if (dur < 60) throw new Error(`suspicious footage duration ${dur}s - not muxing`);
+  say(`footage flushed: ${dur.toFixed(1)}s -> auto-muxing (head trim is not optional)`);
+  // The take ALWAYS ends through demo-mux: first VO lands ~1s after video start.
+  execSync(`node ${new URL("./demo-mux.mjs", import.meta.url).pathname} --footage ${REC_FILE} --out ${MUX_OUT}`, { stdio: "inherit" });
+  say(`FINAL -> ${MUX_OUT} (head-trimmed, VO at markers)`);
+}
+
 (async () => {
+  if (process.argv[2] === "mux") {
+    // just finish: stop any running recorder, verify the flush, mux + head trim
+    return stopRecorderAndMux();
+  }
   say(DRY ? "DRY pass (no VO, no spend)" : "REAL take");
   await measureBeats();
   if (!DRY) {
@@ -253,5 +285,6 @@ async function scene7() {
     await beat(6); await scene6(); say("scene 6 done");
   }
   await beat(7); await scene7(); say("scene 7 done");
-  say(DRY ? "DRY complete" : `TAKE COMPLETE -> ${REC_FILE} (stop the recorder to flush)`);
+  if (DRY) return say("DRY complete");
+  await stopRecorderAndMux();
 })();
