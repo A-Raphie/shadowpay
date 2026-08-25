@@ -1,23 +1,38 @@
-// Launch a persistent Chromium with the Ready X extension loaded.
-// Usage: node scripts/wallet-session.mjs          (launch + report extension UI)
-//        node scripts/wallet-session.mjs shot     (screenshot active page)
+// Launch a persistent Chromium with a real wallet extension loaded (vendored
+// from the user's installed Chrome, never hand-drawn). Generic, any wallet.
+//
+// Usage: node wallet-session.mjs [extId] [profileDir] [extDstDir]
+//   extId      Chrome Web Store id of the installed extension (REQUIRED in practice)
+//   profileDir persistent profile dir (default /tmp/wallet-profile)
+//   extDstDir  where the vendored extension copy lives (default /tmp/wallet-ext)
+// Example (Ready X):
+//   node wallet-session.mjs dlcobpjiigpikoobohmabehhmhfoodbb /tmp/ready-wallet-profile /tmp/readyx-ext
 import { chromium } from "playwright";
-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const PROFILE = "/tmp/ready-wallet-profile";
+const EXT_ID = process.argv[2];
+const PROFILE = process.argv[3] || "/tmp/wallet-profile";
+const EXT_DST = process.argv[4] || "/tmp/wallet-ext";
+if (!EXT_ID) {
+  console.error("usage: node wallet-session.mjs <extId> [profileDir] [extDstDir]");
+  process.exit(1);
+}
 const EXT_SRC_ROOT = join(
   process.env.HOME,
-  "Library/Application Support/Google/Chrome/Default/Extensions/dlcobpjiigpikoobohmabehhmhfoodbb"
+  `Library/Application Support/Google/Chrome/Default/Extensions/${EXT_ID}`
 );
-const EXT_DST = "/tmp/readyx-ext";
+if (!existsSync(EXT_SRC_ROOT)) {
+  console.error(`extension ${EXT_ID} is not installed in this Chrome profile`);
+  process.exit(1);
+}
 
 // vendor the newest version dir of the extension (real installed asset, never hand-drawn)
 if (!existsSync(EXT_DST)) {
   const versions = readdirSync(EXT_SRC_ROOT).sort();
   const latest = versions[versions.length - 1];
   cpSync(join(EXT_SRC_ROOT, latest), EXT_DST, { recursive: true });
-  console.log("vendored Ready X", latest);
+  console.log(`vendored extension ${EXT_ID} ${latest}`);
 }
 mkdirSync(PROFILE, { recursive: true });
 
@@ -33,7 +48,7 @@ const ctx = await chromium.launchPersistentContext(PROFILE, {
   ],
 });
 
-// find the extension service worker / pages to learn its id
+// find the extension service worker / pages to learn its runtime id
 let extId = null;
 for (const w of ctx.serviceWorkers()) {
   const url = w.url();
@@ -47,18 +62,17 @@ ctx.on("serviceworker", (w) => {
 
 console.log("extension id:", extId);
 const page = ctx.pages()[0] ?? (await ctx.newPage());
-const mode = process.argv[2] ?? "launch";
+const mode = process.argv[5] ?? "launch";
 
 if (mode === "launch") {
   // read manifest to find the extension's entry page
-  const { readFileSync } = await import("node:fs");
   const manifest = JSON.parse(readFileSync(join(EXT_DST, "manifest.json"), "utf8"));
   console.log("manifest action:", JSON.stringify(manifest.action ?? {}));
   if (extId) {
     await page.goto(`chrome-extension://${extId}/${(manifest.action?.default_path) ?? "index.html"}`, { waitUntil: "domcontentloaded" }).catch((e) => console.log("nav err", e.message.slice(0, 80)));
   }
   await page.waitForTimeout(1500);
-  await page.screenshot({ path: "scripts/wallet-1.png" });
+  await page.screenshot({ path: "wallet-session.png" });
   console.log("page url:", page.url());
   console.log("title:", await page.title().catch(() => "?"));
 }

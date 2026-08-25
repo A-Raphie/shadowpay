@@ -1,0 +1,117 @@
+{
+  "browserProcess": "Google Chrome for Testing",
+  "voDir": "/tmp/vo-beats",
+  "timeline": "/tmp/take-timeline.jsonl",
+  "recFile": "/tmp/shadowpay-take.mov",
+  "out": "demo-video/shadowpay-demo-final.mp4",
+  "lead": 1.0,
+  "holdScale": 0.6,
+  "dryScenes": [1, 2, 3, 7],
+  "scenes": [
+    {
+      "beat": 1,
+      "name": "landing",
+      "actions": [
+        { "t": "goto", "page": "app", "url": "https://shadowpay-green.vercel.app/" },
+        { "t": "hold", "ms": 1500 },
+        { "t": "eval", "page": "app", "code": "window.scrollTo(0, 0)" },
+        { "t": "hold", "ms": 800 },
+        { "t": "cmove", "page": "app", "x": 640, "y": 430 },
+        { "t": "hold", "ms": 2500 },
+        { "t": "wheel", "page": "app", "dy": 350 },
+        { "t": "hold", "ms": 2000 },
+        { "t": "cmove", "page": "app", "x": 640, "y": 520 },
+        { "t": "hold", "ms": 2500 }
+      ]
+    },
+    {
+      "beat": 2,
+      "name": "privacy + primitives",
+      "actions": [
+        { "t": "wheel", "page": "app", "dy": 700 },
+        { "t": "hold", "ms": 1500 },
+        { "t": "cmove", "page": "app", "x": 520, "y": 560 },
+        { "t": "hold", "ms": 1800 },
+        { "t": "cmove", "page": "app", "x": 780, "y": 560 },
+        { "t": "hold", "ms": 1800 }
+      ]
+    },
+    {
+      "beat": 3,
+      "name": "deployment + explorer",
+      "actions": [
+        { "t": "wheel", "page": "app", "dy": 650 },
+        { "t": "hold", "ms": 1200 },
+        { "t": "findClick", "page": "app", "find": "()=>[...document.querySelectorAll(\"a\")].find(x=>/starkscan/i.test(x.href))" },
+        { "t": "hold", "ms": 3500 },
+        { "t": "goto", "page": "app", "url": "https://shadowpay-green.vercel.app/" },
+        { "t": "hold", "ms": 1200 }
+      ]
+    },
+    {
+      "beat": 4,
+      "name": "connect + real activity",
+      "note": "reload is MANDATORY with the wallet ready (wallet-connect lesson); history mode shows the 5 real pool txs, zero cost",
+      "actions": [
+        { "t": "hybridJs", "page": "app", "find": "()=>[...document.querySelectorAll(\"button\")].find(e=>e.textContent.trim()===\"Disconnect\")" },
+        { "t": "hold", "ms": 1200 },
+        { "t": "eval", "page": "app", "code": "location.reload()" },
+        { "t": "hold", "ms": 4500 },
+        { "t": "eval", "page": "app", "code": "document.querySelector(\"[class*=panelWrap]\")?.scrollIntoView({block:\"center\"})" },
+        { "t": "hold", "ms": 1000 },
+        {
+          "t": "retry",
+          "times": 3,
+          "until": { "page": "app", "selector": "[class*=panelWrap]", "re": "MAINNET", "notRe": "Connect a Wallet" },
+          "actions": [
+            { "t": "hybridJs", "page": "app", "find": "()=>[...document.querySelectorAll(\"button\")].find(e=>e.textContent.trim()===\"Connect\")" },
+            { "t": "hold", "ms": 1500 },
+            { "t": "hybridJs", "page": "app", "find": "()=>[...document.querySelectorAll(\"button,div,span\")].find(e=>e.textContent.trim()===\"Ready X\")" },
+            { "t": "hold", "ms": 2500 },
+            { "t": "hybridJs", "page": "ext", "find": "()=>[...document.querySelectorAll(\"button\")].filter(e=>e.textContent.trim()===\"Connect\").pop()" },
+            { "t": "hold", "ms": 2000 },
+            { "t": "eval", "page": "app", "code": "location.reload()" },
+            { "t": "hold", "ms": 4000 },
+            { "t": "eval", "page": "app", "code": "document.querySelector(\"[class*=panelWrap]\").scrollIntoView({block:\"center\"})" },
+            { "t": "hold", "ms": 1000 }
+          ]
+        },
+        { "t": "waitText", "page": "app", "re": "MAINNET", "notRe": "Connect a Wallet", "selector": "[class*=panelWrap]", "timeoutMs": 25000, "fatal": true },
+        { "t": "goto", "page": "ext", "url": "chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb/account/activity" },
+        { "t": "hold", "ms": 2500 },
+        { "t": "click", "page": "ext", "text": "Shield" },
+        { "t": "hold", "ms": 4000 }
+      ]
+    },
+    {
+      "beat": 5,
+      "name": "private transfer receipt",
+      "actions": [
+        { "t": "eval", "page": "ext", "code": "(function(){ const a=[...document.querySelectorAll(\"a\")].find(a=>a.getAttribute(\"href\")===\"/account/activity\"); if(a){a.click(); return \"nav\";} return \"no-link\"; })()" },
+        { "t": "hold", "ms": 2200 },
+        { "t": "click", "page": "ext", "text": "Private transfer" },
+        { "t": "hold", "ms": 4000 }
+      ]
+    },
+    {
+      "beat": 6,
+      "name": "unshield + app closeup",
+      "actions": [
+        { "t": "goto", "page": "ext", "url": "chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb/account/activity" },
+        { "t": "hold", "ms": 2000 },
+        { "t": "click", "page": "ext", "text": "Unshield" },
+        { "t": "hold", "ms": 3500 },
+        { "t": "eval", "page": "app", "code": "window.scrollTo(0, document.body.scrollHeight)" },
+        { "t": "hold", "ms": 2500 }
+      ]
+    },
+    {
+      "beat": 7,
+      "name": "repo",
+      "actions": [
+        { "t": "goto", "page": "app", "url": "https://github.com/A-Raphie/shadowpay" },
+        { "t": "hold", "ms": 5000 }
+      ]
+    }
+  ]
+}

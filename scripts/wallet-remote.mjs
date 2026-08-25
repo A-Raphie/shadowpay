@@ -1,6 +1,11 @@
 // Resident wallet-browser driver. Connects to the Chromium CDP port once and
 // serves fast one-line commands over HTTP so each action is a curl, not a new
-// process. Usage: node scripts/wallet-remote.mjs   (stays running)
+// process. Generic, any project: pass YOUR wallet extension id and app URL so
+// pages resolve by name ("ext" / "app") and missing tabs self-open.
+//
+// Usage: node wallet-remote.mjs <extId> <appUrl> [port]   (stays running)
+// Example (Ready X + ShadowPay):
+//   node wallet-remote.mjs dlcobpjiigpikoobohmabehhmhfoodbb https://shadowpay-green.vercel.app
 //
 //   curl 'http://127.0.0.1:9333/pages'
 //   curl 'http://127.0.0.1:9333/text?page=ext'
@@ -8,17 +13,26 @@
 //   curl 'http://127.0.0.1:9333/click?page=ext&text=Spot'
 //   curl 'http://127.0.0.1:9333/wheel?page=ext&dy=600'
 //   curl 'http://127.0.0.1:9333/eval?page=app&code=document.title'
+//   curl 'http://127.0.0.1:9333/goto?page=app&url=https://...'
 import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
-const { injectCursor, moveCursor, cursorPos } = require("/Users/raphie/.agents/skills/demo-video/scripts/cursor.js");
+const { injectCursor, moveCursor, cursorPos } = require(
+  join(process.env.HOME, ".agents/skills/demo-video/scripts/cursor.js")
+);
 
-const EXT_ID = "dlcobpjiigpikoobohmabehhmhfoodbb";
+const EXT_ID = process.argv[2] || "";
+const APP_URL = process.argv[3] || "";
+const APP_FRAGMENT = APP_URL ? new URL(APP_URL).host : "";
+const PORT = parseInt(process.argv[4] || "9333", 10);
+
 // self-healing attach: contexts go stale after stage rebuilds; reconnect on death
 let browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 let ctx = browser.contexts()[0];
+const sayLog = (m) => console.log(new Date().toISOString().slice(11, 19), m);
 async function healthyCtx() {
   try {
     ctx.pages();
@@ -30,7 +44,6 @@ async function healthyCtx() {
     return ctx;
   }
 }
-const sayLog = (m) => console.log(new Date().toISOString().slice(11, 19), m);
 
 async function ensureCursor(pg) {
   try {
@@ -56,7 +69,14 @@ function pickPage(which) {
     // STRICT: only a live extension page counts, no fallback to pages[0]
     return pages.find((p) => p.url().includes(EXT_ID)) ?? null;
   }
-  if (which === "app") return pages.find((p) => /shadowpay/.test(p.url())) ?? null;
+  if (which === "app") {
+    return (
+      (APP_FRAGMENT && pages.find((p) => p.url().includes(APP_FRAGMENT))) ??
+      // fallback: first non-extension http(s) page
+      pages.find((p) => /^https?:/.test(p.url()) && !p.url().startsWith("chrome-extension://")) ??
+      null
+    );
+  }
   return pages[0] ?? null;
 }
 
@@ -78,8 +98,10 @@ async function ensurePage(which) {
   if (p && p.url() !== "about:blank") return p;
   const url =
     which === "ext"
-      ? `chrome-extension://${EXT_ID}/index.html`
-      : "https://shadowpay-green.vercel.app/";
+      ? (EXT_ID && `chrome-extension://${EXT_ID}/index.html`) ||
+        null
+      : APP_URL || null;
+  if (!url) return null;
   p = await ctx.newPage();
   await p.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
   await p.waitForTimeout(1200);
@@ -116,7 +138,7 @@ createServer(async (req, res) => {
       case "shot": {
         const p = await ensurePage(q.get("page"));
         if (!p) return json(res, 404, { error: "no page" });
-        const path = q.get("path") ?? "scripts/remote-shot.png";
+        const path = q.get("path") ?? "remote-shot.png";
         await p.screenshot({ path });
         return json(res, 200, { ok: true, path, url: p.url() });
       }
@@ -169,6 +191,7 @@ createServer(async (req, res) => {
       }
       case "goto": {
         const p = await ensurePage(q.get("page"));
+        if (!p) return json(res, 404, { error: "no page" });
         await p.goto(q.get("url"), { waitUntil: "domcontentloaded", timeout: 45000 });
         await p.waitForTimeout(1200);
         await ensureCursor(p);
@@ -180,4 +203,4 @@ createServer(async (req, res) => {
   } catch (e) {
     return json(res, 500, { error: e.message.slice(0, 200) });
   }
-}).listen(9333, () => console.log("wallet-remote on 9333"));
+}).listen(PORT, () => console.log(`wallet-remote on ${PORT}`));

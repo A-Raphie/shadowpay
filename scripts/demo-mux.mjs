@@ -7,8 +7,8 @@
 //
 // Usage:
 //   node scripts/demo-mux.mjs \
-//     --footage /tmp/shadowpay-take.mov \
-//     --out demo-video/shadowpay-demo-v2.mp4 \
+//     --footage /tmp/demo-take.mov \
+//     --out demo-video/demo-final.mp4 \
 //     [--timeline /tmp/take-timeline.jsonl] \
 //     [--vo-dir /tmp/vo-beats] \
 //     [--lead 1.0] \

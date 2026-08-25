@@ -1,15 +1,64 @@
-// ShadowPay demo take runner. Paced by VO beats (/tmp/vo-beats/beat-NN.wav).
-// Usage: node scripts/demo-take.mjs        (real take: scenes 1-7, spends ~10 STRK)
-//        node scripts/demo-take.mjs dry    (coordinate lock pass: scenes 1-3 + 7, no VO, no spend)
-//        node scripts/demo-take.mjs mux [out.mp4]  (stop recorder + mux with head trim, no scenes)
+// demo-take: config-driven desktop demo take runner. Generic, any project:
+// ALL project data (URLs, selectors, wallet extension pages, scene steps)
+// lives in the config file; this runner has none of it.
+//
+// Usage: node demo-take.mjs <config.json>            (real take: every scene)
+//        node demo-take.mjs <config.json> dry        (dryScenes only, clamped holds, no recorder)
+//        node demo-take.mjs <config.json> mux [out]  (stop recorder + auto-mux, head trim always)
+//        node demo-take.mjs <config.json> plan       (validate + print the program, no driving)
+//
+// Config schema (JSON):
+//   driver: driver base (default http://127.0.0.1:9333, the wallet-remote resident driver)
+//   browserProcess: process name for the window-rect lookup (default "Google Chrome for Testing")
+//   voDir / timeline / recFile / out / lead / holdScale: paths + mux knobs
+//   dryScenes: beat numbers that run in dry mode
+//   scenes: [{ beat, name, note?, actions: [action, ...] }]
+//
+// Action vocabulary (every primitive a real take needed, nothing speculative):
+//   {t:"hold", ms}                        wait (dry clamps to 700ms)
+//   {t:"eval", page, code}                run JS in the page
+//   {t:"cmove", page, x, y}               move the drawn cursor
+//   {t:"cclick", page, x, y}              drawn-cursor click at coordinates
+//   {t:"click", page, text}               driver text click
+//   {t:"wheel", page, dy}                 scroll
+//   {t:"goto", page, url}                 navigate (never history.back: about:blank plague)
+//   {t:"waitText", page, re, notRe?, timeoutMs?, selector?, fatal?}
+//                                         poll page text (or selector innerText) for re and not notRe;
+//                                         fatal:true throws on timeout
+//   {t:"hybridClick", page, label}        drawn cursor to button text + DOM click (camera + mechanics)
+//   {t:"hybridJs", page, find}            same for a JS locator expression returning an element
+//   {t:"findClick", page, find}           evaluate locator to "x,y" then cclick it (camera-real click)
+//   {t:"retry", times?, until:{page, selector?, re, notRe?}, actions:[...]}
+//                                         check condition, run actions until satisfied or times out
+//
+// Pacing: silent. Each beat's VO duration is measured from voDir and waited
+// with a marker logged to the timeline; the VO is muxed at those markers in
+// post by demo-mux.mjs (nobody hears audio live). The take ALWAYS finishes
+// through demo-mux.mjs: recorder stop, flush check, mux with the head-lead
+// trim (first VO line lands ~1s after video start). There is no take-to-
+// deliverable path that skips it.
 import { spawn, execSync } from "node:child_process";
 import { promisify } from "node:util";
+import { readFileSync, existsSync, readdirSync, appendFileSync, writeFileSync, rmSync } from "node:fs";
 const exec = promisify(spawn);
 
-const BASE = "http://127.0.0.1:9333";
-const BEATS = "/tmp/vo-beats";
-const REC_FILE = "/tmp/shadowpay-take.mov";
-const DRY = process.argv[2] === "dry";
+const CONFIG_PATH = process.argv[2];
+const MODE = process.argv[3] || "real"; // real | dry | mux | plan
+const MUX_OUT_ARG = process.argv[4];
+if (!CONFIG_PATH || !existsSync(CONFIG_PATH)) {
+  console.error("usage: node demo-take.mjs <config.json> [dry|mux|plan]");
+  process.exit(1);
+}
+const CONFIG = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+
+const BASE = CONFIG.driver || "http://127.0.0.1:9333";
+const BEATS = CONFIG.voDir || "/tmp/vo-beats";
+const TIMELINE = CONFIG.timeline || "/tmp/take-timeline.jsonl";
+const REC_FILE = CONFIG.recFile || "/tmp/demo-take.mov";
+const OUT = MUX_OUT_ARG || CONFIG.out || "demo-video/demo-final.mp4";
+const LEAD = CONFIG.lead ?? 1.0;
+const HOLD_SCALE = CONFIG.holdScale ?? 0.6;
+const DRY = MODE === "dry";
 
 const R = async (path) => {
   try {
@@ -22,22 +71,16 @@ const R = async (path) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const say = console.log.bind(console, `[take]`);
-const HOLD_SCALE = 0.6;
 const hold = DRY ? (ms) => sleep(Math.min(ms, 700)) : (ms) => sleep(ms * HOLD_SCALE);
 
-// Beat durations measured once from the segmented VO files. The take plays NO
-// audio: it silently waits each beat's duration and logs a marker, and the VO
-// is muxed at those marker offsets in post (nobody hears anything live).
+// ---------- VO pacing (silent, marker-logged) ----------
 const BEAT_DUR = {};
-async function measureBeats() {
-  const { readdirSync } = await import("node:fs");
-  const { execSync } = await import("node:child_process");
+function measureBeats() {
   for (const f of readdirSync(BEATS).filter((f) => f.endsWith(".wav"))) {
     const n = parseInt(f.match(/beat-(\d+)/)[1], 10);
-    const d = parseFloat(
+    BEAT_DUR[n] = parseFloat(
       execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${BEATS}/${f}`).toString()
     );
-    BEAT_DUR[n] = d;
   }
   say("beat durations (s): " + JSON.stringify(BEAT_DUR));
 }
@@ -45,205 +88,141 @@ async function measureBeats() {
 async function beat(n) {
   if (DRY) return;
   say(`beat ${n}: silent pacing ${BEAT_DUR[n]?.toFixed(1) ?? "?"}s`);
-  const { appendFileSync } = await import("node:fs");
-  appendFileSync("/tmp/take-timeline.jsonl", JSON.stringify({ beat: n, start: Date.now(), dur: BEAT_DUR[n] ?? 0 }) + "\n");
+  appendFileSync(TIMELINE, JSON.stringify({ beat: n, start: Date.now(), dur: BEAT_DUR[n] ?? 0 }) + "\n");
   await sleep((BEAT_DUR[n] ?? 8) * 1000 + 250);
 }
 
-async function waitText(page, re, timeoutMs = 20000) {
+// ---------- page helpers ----------
+async function pageText(page, selector) {
+  const code = `(function(){ const el=${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.body"}; return el ? el.innerText : ""; })()`;
+  return (await R(`/eval?page=${page}&code=${encodeURIComponent(code)}`)).result || "";
+}
+
+async function matchesUntil(u) {
+  const t = await pageText(u.page, u.selector);
+  return new RegExp(u.re).test(t) && (!u.notRe || !new RegExp(u.notRe).test(t));
+}
+
+async function waitText(a) {
+  const re = new RegExp(a.re);
+  const notRe = a.notRe ? new RegExp(a.notRe) : null;
   const t0 = Date.now();
+  const timeoutMs = a.timeoutMs ?? 20000;
   while (Date.now() - t0 < timeoutMs) {
-    const r = await R(`/text?page=${page}`);
-    if (r.text && re.test(r.text)) return true;
+    const t = await pageText(a.page, a.selector);
+    if (re.test(t) && (!notRe || !notRe.test(t))) return true;
     await sleep(800);
   }
+  say(`!! waitText timeout (${timeoutMs}ms): /${a.re}/${a.notRe ? ` not /${a.notRe}/` : ""} on ${a.page}`);
+  if (a.fatal) throw new Error(`waitText fatal: ${a.re} never appeared on ${a.page}`);
   return false;
 }
 
-async function findButton(page, label) {
-  // returns "x,y" center of a button whose trimmed text matches
+function locatorJs(find) {
+  return `(function(){ const el=(${find})(); if(!el) return "nf"; const r=el.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`;
+}
+
+async function hybridClick(page, label) {
+  // camera: move drawn cursor to the button; mechanics: DOM click (coordinate-proof)
+  const pos = (await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ const b=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="${label}"); if(!b) return "nf"; const r=b.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`)}`)).result;
+  if (pos === "nf") return say(`!! hybridClick: no button "${label}" on ${page}`);
+  await R(`/cmove?page=${page}&x=${pos.split(",")[0]}&y=${pos.split(",")[1]}`);
+  await sleep(300);
   return (
-    await R(
-      `/eval?page=${page}&code=${encodeURIComponent(
-        `(function(){ const b=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="${label}"); if(!b) return "nf"; const r=b.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`
-      )}`
-    )
+    await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ window.__demoClick && window.__demoClick(); const b=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="${label}"); if(!b) return "nf"; b.click(); return "clicked"; })()`)}`)
   ).result;
 }
 
+async function hybridJs(page, find) {
+  const pos = (await R(`/eval?page=${page}&code=${encodeURIComponent(locatorJs(find))}`)).result;
+  if (!pos || pos === "nf") return say(`!! hybridJs: locator found nothing on ${page}`);
+  await sleep(400);
+  await R(`/cmove?page=${page}&x=${pos.split(",")[0]}&y=${pos.split(",")[1]}`);
+  await sleep(250);
+  return (
+    await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ const el=(${find})(); if(!el) return "nf"; window.__demoClick && window.__demoClick(); el.click(); return "clicked"; })()`)}`)
+  ).result;
+}
+
+async function findClick(a) {
+  // camera-real click on a JS-located element: locator returns "x,y", drawn cursor travels there
+  const pos = (await R(`/eval?page=${a.page}&code=${encodeURIComponent(locatorJs(a.find))}`)).result;
+  if (!pos || pos === "nf") return say(`!! findClick: locator found nothing on ${a.page}`);
+  await R(`/cclick?page=${a.page}&x=${pos}`);
+  return "clicked";
+}
+
+// ---------- action runner ----------
+async function runAction(a) {
+  switch (a.t) {
+    case "hold": return hold(a.ms);
+    case "eval": return R(`/eval?page=${a.page}&code=${encodeURIComponent(a.code)}`);
+    case "cmove": return R(`/cmove?page=${a.page}&x=${a.x}&y=${a.y}`);
+    case "cclick": return R(`/cclick?page=${a.page}&x=${a.x}&y=${a.y}`);
+    case "wheel": return R(`/wheel?page=${a.page}&dy=${a.dy}`);
+    case "click": return R(`/click?page=${a.page}&text=${encodeURIComponent(a.text)}`);
+    case "goto": return R(`/goto?page=${a.page}&url=${encodeURIComponent(a.url)}`);
+    case "waitText": return waitText(a);
+    case "hybridClick": return hybridClick(a.page, a.label);
+    case "hybridJs": return hybridJs(a.page, a.find);
+    case "findClick": return findClick(a);
+    case "retry": {
+      const times = a.times ?? 3;
+      for (let i = 0; i < times; i++) {
+        if (await matchesUntil(a.until)) return say(`retry satisfied after ${i} attempt(s)`);
+        say(`retry attempt ${i + 1}/${times}`);
+        for (const sub of a.actions) await runAction(sub);
+      }
+      return matchesUntil(a.until);
+    }
+    default: throw new Error(`unknown action type: ${a.t}`);
+  }
+}
+
+function describeAction(a) {
+  switch (a.t) {
+    case "hold": return `hold ${a.ms}ms`;
+    case "eval": return `eval ${a.page}`;
+    case "cmove": return `cmove ${a.page} ${a.x},${a.y}`;
+    case "cclick": return `cclick ${a.page} ${a.x},${a.y}`;
+    case "wheel": return `wheel ${a.page} ${a.dy}`;
+    case "click": return `click ${a.page} "${a.text}"`;
+    case "goto": return `goto ${a.page} ${a.url}`;
+    case "waitText": return `waitText ${a.page} /${a.re}/${a.notRe ? ` !/${a.notRe}/` : ""}${a.fatal ? " fatal" : ""}`;
+    case "hybridClick": return `hybridClick ${a.page} "${a.label}"`;
+    case "hybridJs": return `hybridJs ${a.page}`;
+    case "findClick": return `findClick ${a.page}`;
+    case "retry": return `retry x${a.times ?? 3} until /${a.until.re}/ [${a.actions.map(describeAction).join(", ")}]`;
+    default: return `?${a.t}`;
+  }
+}
+
+// ---------- recorder ----------
 async function restartRecorder() {
   try {
     const pids = execSync("ps aux | grep '[s]creencapture -v' | awk '{print $2}'").toString().trim().split("\n").filter(Boolean);
     for (const pid of pids) {
-      try { process.kill(parseInt(pid), "SIGINT"); } catch {}
+      try { process.kill(parseInt(pid, 10), "SIGINT"); } catch {}
     }
     if (pids.length) say(`${pids.length} old recorder(s) stopped (flushed)`);
     await sleep(2500);
   } catch {}
   // screencapture -v only writes the file at STOP (verified empirically):
   // clear any stale output, spawn, then verify the PROCESS is alive.
-  const { rmSync } = await import("node:fs");
   try { rmSync(REC_FILE); } catch {}
   // REGION RECORDING: capture only the browser window's rect. The desktop
   // around it (other apps, dock, notifications, wrong space) can never enter
   // the frame, so the take is immune to desktop state.
-  const rect = execSync(`osascript -e 'tell application "System Events" to tell application process "Google Chrome for Testing" to get {position, size} of window 1'`).toString().trim();
+  const proc = CONFIG.browserProcess || "Google Chrome for Testing";
+  const rect = execSync(`osascript -e 'tell application "System Events" to tell application process "${proc}" to get {position, size} of window 1'`).toString().trim();
   const [x, y, w, h] = rect.split(", ").map((n) => parseInt(n, 10));
   say(`recording window region ${x},${y} ${w}x${h}`);
   spawn("screencapture", ["-v", `-R${x},${y},${w},${h}`, REC_FILE], { detached: true, stdio: "ignore" }).unref();
   await sleep(2500);
-  const alive = execSync(`ps aux | grep "[s]creencapture -v -R" | wc -l`).toString().trim() !== "0";
+  const alive = execSync(`ps aux | grep "[screencapture -v -R" | wc -l`).toString().trim() !== "0";
   if (!alive) throw new Error("recorder process died - aborting take");
   say(`recorder verified alive -> ${REC_FILE}`);
 }
-
-// ---------- Scenes ----------
-
-
-async function hybridClick(page, label) {
-  // camera: move drawn cursor to the button; mechanics: DOM click (coordinate-proof)
-  const pos = (
-    await R(`/eval?page=${page}&code=${encodeURIComponent(
-      `(function(){ const b=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="${label}"); if(!b) return "nf"; const r=b.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`
-    )}`)
-  ).result;
-  if (pos === "nf") return "nf";
-  await R(`/cmove?page=${page}&x=${pos.split(",")[0]}&y=${pos.split(",")[1]}`);
-  await sleep(300);
-  return (
-    await R(`/eval?page=${page}&code=${encodeURIComponent(
-      `(function(){ window.__demoClick && window.__demoClick(); const b=[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="${label}"); if(!b) return "nf"; b.click(); return "clicked"; })()`
-    )}`)
-  ).result;
-}
-
-
-async function hybridJs(page, jsFind) {
-  const pos = (await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ const el=(${jsFind})(); if(!el) return "nf"; el.scrollIntoView({block:"center"}); const r=el.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`)}`)).result;
-  if (!pos || pos === "nf") return "nf";
-  await sleep(400);
-  await R(`/cmove?page=${page}&x=${pos.split(",")[0]}&y=${pos.split(",")[1]}`);
-  await sleep(250);
-  return (await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ const el=(${jsFind})(); if(!el) return "nf"; window.__demoClick && window.__demoClick(); el.click(); return "clicked"; })()`)}`)).result;
-}
-
-async function panelText() {
-  return (await R(`/eval?page=app&code=${encodeURIComponent(`(function(){ const p=document.querySelector("[class*=panelWrap]"); return p ? p.innerText : ""; })()`)}`)).result || "";
-}
-
-async function scene1() {
-  await R(`/eval?page=app&code=${encodeURIComponent(`window.scrollTo(0, 0)`)}`);
-  await sleep(800);
-  await R(`/cmove?page=app&x=640&y=430`);
-  await hold(2500);
-  await R(`/wheel?page=app&dy=350`);
-  await hold(2000);
-  await R(`/cmove?page=app&x=640&y=520`);
-  await hold(2500);
-}
-
-async function scene2() {
-  await R(`/wheel?page=app&dy=700`);
-  await hold(1500);
-  await R(`/cmove?page=app&x=520&y=560`);
-  await hold(1800);
-  await R(`/cmove?page=app&x=780&y=560`);
-  await hold(1800);
-}
-
-async function scene3() {
-  await R(`/wheel?page=app&dy=650`);
-  await hold(1200);
-  // StarkScan link on the pool row (first deployLink)
-  const pos = (
-    await R(
-      `/eval?page=app&code=${encodeURIComponent(
-        `(function(){ const a=[...document.querySelectorAll("a")].find(x=>/starkscan/i.test(x.href)); if(!a) return "nf"; const r=a.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`
-      )}`
-    )
-  ).result;
-  if (pos === "nf") return say("!! starkscan link not found");
-  await R(`/cclick?page=app&x=${pos}`);
-  await hold(3500);
-  await R(`/goto?page=app&url=${encodeURIComponent("https://shadowpay-green.vercel.app/")}`);
-  await hold(1200);
-}
-
-async function scene4() {
-  // disconnect so the Connect moment is on camera
-  await hybridJs("app", `()=>[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Disconnect")`).catch(()=>{});
-  await sleep(1200);
-
-  // MANDATORY: reload the app once with the wallet ready. Pages loaded before
-  // the wallet finished waking never receive the injection (known wallet-connect
-  // lesson: reload is the fix, not a fallback).
-  await R(`/eval?page=app&code=${encodeURIComponent(`location.reload()`)}`);
-  await sleep(4500);
-  await R(`/eval?page=app&code=${encodeURIComponent(`document.querySelector("[class*=panelWrap]")?.scrollIntoView({block:"center"})`)}`);
-  await sleep(1000);
-
-  // Connect -> picker -> Ready X, each step verified with retries
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const panel = await panelText();
-    if (/MAINNET/i.test(panel) && !/Connect a Wallet/i.test(panel)) break;
-    say(`connect attempt ${attempt + 1}`);
-    await hybridJs("app", `()=>[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Connect")`);
-    await sleep(1500);
-    await hybridJs("app", `()=>[...document.querySelectorAll("button,div,span")].find(e=>e.textContent.trim()==="Ready X")`);
-    await sleep(2500);
-    // approval may surface in the wallet window
-    await hybridJs("ext", `()=>[...document.querySelectorAll("button")].filter(e=>e.textContent.trim()==="Connect").pop()`).catch(()=>{});
-    await sleep(2000);
-    // EIP-6963 announces only reach pages loaded while the wallet is unlocked:
-    // reload the app so the announcements re-fire, then retry
-    await R(`/eval?page=app&code=${encodeURIComponent(`location.reload()`)}`);
-    await sleep(4000);
-    await R(`/eval?page=app&code=${encodeURIComponent(`document.querySelector("[class*=panelWrap]").scrollIntoView({block:"center"})`)}`);
-    await sleep(1000);
-  }
-  // the reload + AutoReconnect handshake can take ~15s: poll before declaring failure
-  let panel = "";
-  const isConnectedPanel = (txt) => /MAINNET/i.test(txt) && !/Connect a Wallet/i.test(txt);
-  for (let i = 0; i < 25; i++) {
-    panel = await panelText();
-    if (isConnectedPanel(panel)) break;
-    await sleep(1000);
-  }
-  say("panel after connect:", JSON.stringify(panel.slice(0, 120)));
-  if (!isConnectedPanel(panel)) throw new Error("wallet did not connect");
-
-  // HISTORY MODE (zero cost): the wallet Activity holds the real executed pool
-  // transactions (5 verified, hashes in strk20.json). Show the newest Shield.
-  await R(`/goto?page=ext&url=${encodeURIComponent("chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb/account/activity")}`);
-  await sleep(2500);
-  await R(`/click?page=ext&text=Shield`);
-  await hold(4000);
-}
-
-async function scene5() {
-  // wallet activity: real private transfer entry
-  await R(`/eval?page=ext&code=${encodeURIComponent(`(function(){ const a=[...document.querySelectorAll("a")].find(a=>a.getAttribute("href")==="/account/activity"); if(a){a.click(); return "nav";} return "no-link"; })()`)}`);
-  await sleep(2200);
-  await R(`/click?page=ext&text=Private%20transfer`);
-  await hold(4000);
-}
-
-async function scene6() {
-  await R(`/goto?page=ext&url=${encodeURIComponent("chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb/account/activity")}`);
-  await sleep(2000);
-  await R(`/click?page=ext&text=Unshield`);
-  await hold(3500);
-  await R(`/eval?page=app&code=${encodeURIComponent(`window.scrollTo(0, document.body.scrollHeight)`)}`);
-  await hold(2500);
-}
-
-async function scene7() {
-  await R(`/goto?page=app&url=${encodeURIComponent("https://github.com/A-Raphie/shadowpay")}`);
-  await hold(5000);
-}
-
-// ---------- Run ----------
-const MUX_OUT = process.argv[3] || new URL("../demo-video/shadowpay-demo-final.mp4", import.meta.url).pathname;
 
 async function stopRecorderAndMux() {
   // screencapture -v flushes ONLY on SIGINT (writes the file at stop)
@@ -252,7 +231,6 @@ async function stopRecorderAndMux() {
     for (const pid of pids) process.kill(parseInt(pid, 10), "SIGINT");
     say(`stopping recorder (${pids.length} pid) to flush ${REC_FILE}`);
   } catch {}
-  const { existsSync } = await import("node:fs");
   const t0 = Date.now();
   while (!existsSync(REC_FILE) && Date.now() - t0 < 30000) await sleep(1000);
   if (!existsSync(REC_FILE)) throw new Error("recorder never flushed " + REC_FILE);
@@ -260,31 +238,39 @@ async function stopRecorderAndMux() {
   if (dur < 60) throw new Error(`suspicious footage duration ${dur}s - not muxing`);
   say(`footage flushed: ${dur.toFixed(1)}s -> auto-muxing (head trim is not optional)`);
   // The take ALWAYS ends through demo-mux: first VO lands ~1s after video start.
-  execSync(`node ${new URL("./demo-mux.mjs", import.meta.url).pathname} --footage ${REC_FILE} --out ${MUX_OUT}`, { stdio: "inherit" });
-  say(`FINAL -> ${MUX_OUT} (head-trimmed, VO at markers)`);
+  execSync(
+    `node ${new URL("./demo-mux.mjs", import.meta.url).pathname}` +
+      ` --footage ${REC_FILE} --out ${OUT} --timeline ${TIMELINE} --vo-dir ${BEATS} --lead ${LEAD}`,
+    { stdio: "inherit" }
+  );
+  say(`FINAL -> ${OUT} (head-trimmed, VO at markers)`);
 }
 
+// ---------- run ----------
 (async () => {
-  if (process.argv[2] === "mux") {
-    // just finish: stop any running recorder, verify the flush, mux + head trim
-    return stopRecorderAndMux();
+  if (MODE === "plan") {
+    say(`config OK: ${CONFIG.scenes.length} scenes -> ${OUT}, footage ${REC_FILE}, vo ${BEATS}, lead ${LEAD}s`);
+    if (CONFIG.dryScenes) say(`dry scenes: beats ${CONFIG.dryScenes.join(", ")}`);
+    for (const s of CONFIG.scenes) {
+      console.log(`  scene ${s.beat} ${s.name}${s.note ? ` (${s.note})` : ""}:`);
+      for (const a of s.actions) console.log(`    - ${describeAction(a)}`);
+    }
+    return;
   }
-  say(DRY ? "DRY pass (no VO, no spend)" : "REAL take");
-  await measureBeats();
+  if (MODE === "mux") return stopRecorderAndMux();
+
+  say(DRY ? `DRY pass (beats ${CONFIG.dryScenes?.join(", ") ?? "none"})` : "REAL take");
+  measureBeats();
   if (!DRY) {
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync("/tmp/take-timeline.jsonl", JSON.stringify({ recorderStart: Date.now() }) + "\n");
+    writeFileSync(TIMELINE, JSON.stringify({ recorderStart: Date.now() }) + "\n");
     await restartRecorder();
   }
-  await beat(1); await scene1(); say("scene 1 done");
-  await beat(2); await scene2(); say("scene 2 done");
-  await beat(3); await scene3(); say("scene 3 done");
-  if (!DRY) {
-    await beat(4); await scene4(); say("scene 4 done");
-    await beat(5); await scene5(); say("scene 5 done");
-    await beat(6); await scene6(); say("scene 6 done");
+  for (const s of CONFIG.scenes) {
+    if (DRY && !(CONFIG.dryScenes || []).includes(s.beat)) continue;
+    await beat(s.beat);
+    for (const a of s.actions) await runAction(a);
+    say(`scene ${s.beat} (${s.name}) done`);
   }
-  await beat(7); await scene7(); say("scene 7 done");
   if (DRY) return say("DRY complete");
   await stopRecorderAndMux();
 })();
