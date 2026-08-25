@@ -24,22 +24,29 @@ const say = console.log.bind(console, `[take]`);
 const HOLD_SCALE = 0.6;
 const hold = DRY ? (ms) => sleep(Math.min(ms, 700)) : (ms) => sleep(ms * HOLD_SCALE);
 
-function playBeat(n) {
-  return new Promise((resolve) => {
-    const f = `${BEATS}/beat-${String(n).padStart(2, "0")}.wav`;
-    const p = spawn("afplay", [f]);
-    p.on("exit", resolve);
-    p.on("error", () => resolve());
-  });
+// Beat durations measured once from the segmented VO files. The take plays NO
+// audio: it silently waits each beat's duration and logs a marker, and the VO
+// is muxed at those marker offsets in post (nobody hears anything live).
+const BEAT_DUR = {};
+async function measureBeats() {
+  const { readdirSync } = await import("node:fs");
+  const { execSync } = await import("node:child_process");
+  for (const f of readdirSync(BEATS).filter((f) => f.endsWith(".wav"))) {
+    const n = parseInt(f.match(/beat-(\d+)/)[1], 10);
+    const d = parseFloat(
+      execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${BEATS}/${f}`).toString()
+    );
+    BEAT_DUR[n] = d;
+  }
+  say("beat durations (s): " + JSON.stringify(BEAT_DUR));
 }
 
 async function beat(n) {
   if (DRY) return;
-  say(`beat ${n} playing`);
+  say(`beat ${n}: silent pacing ${BEAT_DUR[n]?.toFixed(1) ?? "?"}s`);
   const { appendFileSync } = await import("node:fs");
-  appendFileSync("/tmp/take-timeline.jsonl", JSON.stringify({ beat: n, start: Date.now() }) + "\n");
-  await playBeat(n);
-  await sleep(250);
+  appendFileSync("/tmp/take-timeline.jsonl", JSON.stringify({ beat: n, start: Date.now(), dur: BEAT_DUR[n] ?? 0 }) + "\n");
+  await sleep((BEAT_DUR[n] ?? 8) * 1000 + 250);
 }
 
 async function waitText(page, re, timeoutMs = 20000) {
@@ -65,16 +72,22 @@ async function findButton(page, label) {
 
 async function restartRecorder() {
   try {
-    const pid = execSync("ps aux | grep '[s]creencapture -v' | awk '{print $2}'").toString().trim().split("\n")[0];
-    if (pid) {
-      process.kill(parseInt(pid), "SIGINT");
-      say("old recorder stopped (flushed)");
-      await sleep(2500);
+    const pids = execSync("ps aux | grep '[s]creencapture -v' | awk '{print $2}'").toString().trim().split("\n").filter(Boolean);
+    for (const pid of pids) {
+      try { process.kill(parseInt(pid), "SIGINT"); } catch {}
     }
+    if (pids.length) say(`${pids.length} old recorder(s) stopped (flushed)`);
+    await sleep(2500);
   } catch {}
+  // screencapture -v only writes the file at STOP (verified empirically):
+  // clear any stale output, spawn, then verify the PROCESS is alive.
+  const { rmSync } = await import("node:fs");
+  try { rmSync(REC_FILE); } catch {}
   spawn("screencapture", ["-v", REC_FILE], { detached: true, stdio: "ignore" }).unref();
-  await sleep(1500);
-  say(`recorder rolling -> ${REC_FILE}`);
+  await sleep(2500);
+  const alive = execSync(`ps aux | grep '[s]creencapture -v ${REC_FILE}' | wc -l`).toString().trim() !== "0";
+  if (!alive) throw new Error("recorder process died - aborting take");
+  say(`recorder verified alive -> ${REC_FILE}`);
 }
 
 // ---------- Scenes ----------
@@ -100,7 +113,7 @@ async function hybridClick(page, label) {
 
 async function hybridJs(page, jsFind) {
   const pos = (await R(`/eval?page=${page}&code=${encodeURIComponent(`(function(){ const el=(${jsFind})(); if(!el) return "nf"; el.scrollIntoView({block:"center"}); const r=el.getBoundingClientRect(); return (r.x+r.width/2|0)+","+(r.y+r.height/2|0); })()`)}`)).result;
-  if (pos === "nf") return "nf";
+  if (!pos || pos === "nf") return "nf";
   await sleep(400);
   await R(`/cmove?page=${page}&x=${pos.split(",")[0]}&y=${pos.split(",")[1]}`);
   await sleep(250);
@@ -192,37 +205,12 @@ async function scene4() {
   say("panel after connect:", JSON.stringify(panel.slice(0, 120)));
   if (!isConnectedPanel(panel)) throw new Error("wallet did not connect");
 
-  // amount 7 (retry the set until the CTA enables)
-  for (let i = 0; i < 5; i++) {
-    await R(`/eval?page=app&code=${encodeURIComponent(`(function(){ const ip=document.querySelector("input[class*=bigInput]"); if(!ip) return "no-input"; ip.focus(); const set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set; set.call(ip,"7"); ip.dispatchEvent(new Event("input",{bubbles:true})); return ip.value; })()`)}`);
-    await sleep(600);
-    const st = (await R(`/eval?page=app&code=${encodeURIComponent(`(function(){ const b=[...document.querySelectorAll("button")].find(e=>e.className.includes("btnCta")&&/shield/i.test(e.textContent)); return JSON.stringify({found: !!b, disabled: b?b.disabled:null, amount: document.querySelector("input[class*=bigInput]")?.value}); })()`)}`)).result;
-    const s = JSON.parse(st || "{}");
-    say(`cta state: ${st}`);
-    if (s.found && !s.disabled) break;
-    await sleep(1500);
-  }
-
-  // 10-block guard wait (only if a countdown is showing)
-  for (let i = 0; i < 40; i++) {
-    const g = JSON.parse((await R(`/eval?page=app&code=${encodeURIComponent(`(function(){ const w=[...document.querySelectorAll("div")].find(e=>/more blocks/i.test(e.textContent)); const b=[...document.querySelectorAll("button")].find(e=>e.className.includes("btnCta")&&/shield/i.test(e.textContent)); return JSON.stringify({guard: !!w, disabled: b?b.disabled:null}); })()`)}`)).result || "{}");
-    if (!g.guard && g.disabled === false) break;
-    await sleep(3000);
-  }
-
-  // Shield (hybrid: camera cursor + DOM click)
-  const sh = await hybridJs("app", `()=>[...document.querySelectorAll("button")].find(e=>e.className.includes("btnCta")&&/shield/i.test(e.textContent))`);
-  say("shield click:", sh);
-  const rvw = await waitText("ext", /Review shield/i, 30000);
-  say("review shield:", rvw ? "visible" : "NOT FOUND");
-  if (!rvw) throw new Error("wallet review did not appear");
-  await sleep(1200);
-  const clicked = await hybridClick("ext", "Confirm");
-  say("confirm hybrid click:", clicked);
-  if (clicked !== "clicked") throw new Error("Confirm failed to click");
-  const got = await waitText("app", /Confirmed|Transaction|0x[0-9a-f]{8}/i, 60000);
-  say("receipt:", got ? "landed" : "timeout");
-  await hold(2500);
+  // HISTORY MODE (zero cost): the wallet Activity holds the real executed pool
+  // transactions (5 verified, hashes in strk20.json). Show the newest Shield.
+  await R(`/goto?page=ext&url=${encodeURIComponent("chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb/account/activity")}`);
+  await sleep(2500);
+  await R(`/click?page=ext&text=Shield`);
+  await hold(4000);
 }
 
 async function scene5() {
@@ -250,6 +238,7 @@ async function scene7() {
 // ---------- Run ----------
 (async () => {
   say(DRY ? "DRY pass (no VO, no spend)" : "REAL take");
+  await measureBeats();
   if (!DRY) {
     const { writeFileSync } = await import("node:fs");
     writeFileSync("/tmp/take-timeline.jsonl", JSON.stringify({ recorderStart: Date.now() }) + "\n");

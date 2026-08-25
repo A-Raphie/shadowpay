@@ -16,8 +16,21 @@ const require = createRequire(import.meta.url);
 const { injectCursor, moveCursor, cursorPos } = require("/Users/raphie/.agents/skills/demo-video/scripts/cursor.js");
 
 const EXT_ID = "dlcobpjiigpikoobohmabehhmhfoodbb";
-const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
-const ctx = browser.contexts()[0];
+// self-healing attach: contexts go stale after stage rebuilds; reconnect on death
+let browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+let ctx = browser.contexts()[0];
+async function healthyCtx() {
+  try {
+    ctx.pages();
+    return ctx;
+  } catch {
+    sayLog("context stale, reconnecting...");
+    browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+    ctx = browser.contexts()[0];
+    return ctx;
+  }
+}
+const sayLog = (m) => console.log(new Date().toISOString().slice(11, 19), m);
 
 async function ensureCursor(pg) {
   try {
@@ -51,6 +64,7 @@ function pickPage(which) {
 // app -> open the site fresh; ext -> open the wallet fullpage UI.
 // Sweep orphaned blanks so they never accumulate or get driven by mistake.
 async function sweepBlanks() {
+  await healthyCtx();
   for (const pg of ctx.pages()) {
     try {
       if (pg.url() === "about:blank" || pg.url() === "") await pg.close();
