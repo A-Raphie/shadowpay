@@ -4,7 +4,8 @@ Every Starknet payroll is public. ShadowPay fixes it — shield STRK into the ST
 
 Built for the [STRK20 Private Sprint](https://github.com/starkience/strk20-hackathon) (starkience/strk20-hackathon, deadline Aug 31 23:59 UTC). Registration PR: [#140](https://github.com/starkience/strk20-hackathon/pull/140).
 
-> **Live demo:** Vercel deploy after `vercel --prod` — repo **Website** field is the hub's discovery path (`strk20.json demo_url` → Pages → Website → deployment). Until then: `npm run dev` locally.
+> **Live demo:** https://shadowpay-green.vercel.app · connects a real STRK20 wallet on Starknet mainnet
+> **Demo video:** https://shadowpay-green.vercel.app/demo.mp4 · full run on mainnet: shield, private note→note transfer, unshield
 
 ## What is private, what is not
 
